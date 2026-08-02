@@ -29,7 +29,13 @@ The `misconfig` CI job reads all files in this directory from `origin/main`
 and passes their similarity_ids to KICS via `--exclude-results`. It also
 matches on the `{SEVERITY}_{QuerySlug}_{FileSlug}_` prefix so suppression
 remains stable if line numbers shift when a file is edited after a suppression
-was merged.
+was merged. This fallback is intentionally scoped to a severity, rule, and
+Compose file. A new occurrence of the same rule in an already accepted file is
+therefore covered by the existing suppression and must be reviewed when that
+file changes.
+
+CI also verifies that each suppression contains a valid similarity ID and
+still refers to an existing Compose file.
 
 ## Adding a suppression
 
