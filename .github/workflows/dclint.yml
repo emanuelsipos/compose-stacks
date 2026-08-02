@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 jobs:
   check-compose:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
