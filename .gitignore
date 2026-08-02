@@ -1,6 +1,10 @@
 # Local environment files are managed by Komodo.
 .env
 **/.env
+.env.*
+**/.env.*
+*.env
+**/*.env
 
 # Curated examples remain trackable.
 !example.env
