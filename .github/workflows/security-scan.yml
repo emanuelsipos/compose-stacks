@@ -183,11 +183,16 @@ jobs:
       # Unauthenticated pulls are rate-limited to 100/6h per IP on self-hosted
       # runners. A rate-limit hit produces exit 125, which '; true' swallows,
       # leaving no results.json and a false-green scan.
-      # Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets.
+      # Uses DOCKERHUB_USERNAME and DOCKERHUB_TOKEN when configured. Public
+      # repositories can otherwise pull anonymously within Docker Hub limits.
       - name: Docker Hub login
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          echo "$DOCKERHUB_TOKEN" | \
+            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
       - name: Run KICS
         id: kics
@@ -641,9 +646,13 @@ jobs:
             echo "  no .kics-exclude/ files found on origin/main"
           fi
       - name: Docker Hub login
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          echo "$DOCKERHUB_TOKEN" | \
+            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
       # Full scan — not scoped to changed files; catches anything on main.
       # --exclude-severities medium,low,info — only open PRs for HIGH/CRITICAL.
