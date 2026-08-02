@@ -33,7 +33,7 @@ services:
       service: x-defaults
 
   service.meilisearch:
-    image: getmeili/meilisearch:v1.12.8@sha256:c9fac23131cca4db95173d41cc50fd5639121ee381795528fdd7522d7978a7b8
+    image: getmeili/meilisearch:v1.51.0@sha256:a9eb29ee09ab4943db3b4c68620bd6f3382e6b2b0ac4431c0e607b48dbcd4c14
     container_name: meilisearch
     volumes:
       - /opt/docker/linkwarden/meili_data/:/meili_data/
