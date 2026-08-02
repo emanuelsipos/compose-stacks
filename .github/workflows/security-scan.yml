@@ -224,7 +224,7 @@ jobs:
             --config kics-config.yaml \
             --report-formats json,sarif \
             -o kics-results \
-            -e .git,.cache,.github,.archive \
+            -e .git,.cache,.github \
             --ignore-on-exit all \
             $EXCLUDE_ARGS \
           ; true  # exit 0 — block step evaluates findings separately
@@ -271,7 +271,7 @@ jobs:
           sarif_file: kics-results/results.filtered.sarif
           category: kics-compose
 
-      # ── push/schedule/dispatch: sticky commit comment ─────────────────────
+      # ── push/schedule/dispatch: workflow run summary ──────────────────────
       # Skipped when dry_run=true so no side-effects are left behind.
       - name: Format summary comment
         if: always() && github.event_name != 'pull_request'
@@ -299,7 +299,7 @@ jobs:
           # Append a banner when this was a manual dry-run
           DRY_NOTE=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_NOTE="> ⚠️ **Dry run** — this comment was posted for visibility only. No PRs were opened."$'\n\n'
+            DRY_NOTE="> ⚠️ **Dry run** — results are shown for visibility only. No PRs were opened."$'\n\n'
           fi
 
           # Append which scanners were selected (workflow_dispatch only)
@@ -383,13 +383,13 @@ jobs:
             done < <(jq -c '.queries[] | select(.severity=="CRITICAL" or .severity=="HIGH") | . as $q | .files[] | {severity: $q.severity, query_name: $q.query_name, file_name: .file_name}' kics-results/results.json)
 
             if [ "$COUNT" -gt 0 ]; then
-              echo "::error::KICS: $COUNT new CRITICAL/HIGH finding(s) -- see Checks tab"
+              echo "::error::KICS: $COUNT new CRITICAL/HIGH finding(s) -- see GitHub code scanning"
               BLOCK=1
             fi
           fi
 
           if [ "${{ steps.checkov.outcome }}" = "failure" ]; then
-            echo "::error::Checkov: failed checks found -- see Checks tab"
+            echo "::error::Checkov: failed checks found -- see GitHub code scanning"
             BLOCK=1
           fi
 
@@ -425,12 +425,7 @@ jobs:
             inputs.scanners == 'trivy'
           )
         env:
-          # Keep the Trivy DB outside the workspace so it survives across runs.
-          # The workspace is re-created on every checkout; /home/runner/.cache
-          # persists unconditionally on self-hosted runners.
-          # The old default (.cache/trivy inside the workspace) caused a 90 MB
-          # re-download on every run because the workspace was wiped each time.
-          TRIVY_CACHE_DIR: /home/runner/.cache/trivy
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -445,7 +440,7 @@ jobs:
           # cache-dir must be set in with: as well as env: — the action's
           # internal setup-trivy step reads the input to key actions/cache,
           # and ignores TRIVY_CACHE_DIR for that purpose.
-          cache-dir: /home/runner/.cache/trivy
+          cache-dir: ${{ github.workspace }}/.cache/trivy
 
       - name: Convert Trivy results to SARIF
         if: always() && hashFiles('trivy-results.json') != ''
@@ -478,7 +473,7 @@ jobs:
 
           DRY_NOTE=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_NOTE="> ⚠️ **Dry run** — this comment was posted for visibility only. No PRs were opened."$'\n\n'
+            DRY_NOTE="> ⚠️ **Dry run** — results are shown for visibility only. No PRs were opened."$'\n\n'
           fi
 
           cat <<COMMENT > vuln-summary.md
@@ -508,7 +503,7 @@ jobs:
           if [ ! -f trivy-results.json ]; then exit 0; fi
           COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH")] | length' trivy-results.json)
           if [ "$COUNT" -gt 0 ]; then
-            echo "::error::Trivy: $COUNT CRITICAL/HIGH CVE(s) found — see Checks tab"
+            echo "::error::Trivy: $COUNT CRITICAL/HIGH CVE(s) found — see GitHub code scanning"
             exit 1
           fi
 
@@ -656,9 +651,7 @@ jobs:
   # dry_run=true → skips the PR-opening step (scan still runs so you can
   #                inspect what *would* have been opened).
   #
-  # Suppression strategy:
-  #   key: value lines → inline # kics-scan ignore-line in the compose file
-  #   list items (- …) → exclude-results entry in kics-config.yaml
+  # Suppressions are stored as one reviewed finding per .kics-exclude/ file.
   # ─────────────────────────────────────────────────────────────────────────
   fix-prs:
     name: Generate Fix PRs
@@ -738,7 +731,7 @@ jobs:
             --config kics-config.yaml \
             --report-formats json \
             -o kics-results \
-            -e .git,.cache,.github,.archive \
+            -e .git,.cache,.github \
             --exclude-severities medium,low,info \
             --ignore-on-exit all \
             $EXCLUDE_ARGS \
