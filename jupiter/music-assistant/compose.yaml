@@ -1,0 +1,13 @@
+---
+services:
+  music-assistant-server:
+    image: ghcr.io/music-assistant/server:2.9.10@sha256:5500c53c5129bbabfb0de2c2c298fd0ef15fe34207bbe5794f49c587b76bde95
+    container_name: music-assistant-server
+    volumes:
+      - /opt/docker/music-assistant-server/:/data/
+    env_file: .env
+    network_mode: host # Network mode must be set to host for MA to work correctly
+    user: 1000:1000
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

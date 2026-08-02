@@ -1,0 +1,288 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dashboard",
+  "assignAutomerge": false,
+  "assignees": ["emanuelsipos"],
+  "labels": ["renovate"],
+  "configMigration": true,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "ignorePaths": [
+    ".archive/**"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ],
+  "docker-compose": {
+    "hostRules": [
+      {
+        "matchHost": "docker.io",
+        "concurrentRequestLimit": 2
+      }
+    ],
+    "packageRules": [
+      {
+        "groupName": "immich",
+        "matchPackageNames": [
+          "ghcr.io/immich-app/immich-machine-learning",
+          "ghcr.io/immich-app/immich-server"
+        ]
+      },
+      {
+        "groupName": "forgejo",
+        "matchPackageNames": [
+          "data.forgejo.org/**"
+        ]
+      },
+      {
+        "groupName": "remnawave",
+        "matchPackageNames": [
+          "remnawave/*"
+        ]
+      },
+      {
+        "groupName": "fosrl",
+        "matchPackageNames": [
+          "fosrl/*"
+        ]
+      },
+      {
+        "groupName": "ente",
+        "matchPackageNames": [
+          "ghcr.io/ente-io/*"
+        ]
+      },
+      {
+        "groupName": "simplelogin",
+        "matchPackageNames": [
+          "simplelogin/*"
+        ]
+      },
+      {
+        "groupName": "soju",
+        "matchPackageNames": [
+          "codeberg.org/emersion/*"
+        ]
+      },
+      {
+        "groupName": "librechat",
+        "matchPackageNames": [
+          "ghcr.io/danny-avila/librechat*"
+        ]
+      },
+      {
+        "groupName": "profilarr",
+        "matchPackageNames": [
+          "ghcr.io/dictionarry-hub/*"
+        ]
+      },
+      {
+        "matchManagers": ["github-actions"],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["major"],
+        "matchPackageNames": [
+          "/(.*/)?postgres$/",
+          "/(.*/)?mariadb$/",
+          "/(.*/)?mongo$/",
+          "/(.*/)?redis$/",
+          "/(.*/)?valkey$/"
+        ],
+        "enabled": false
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["minor", "patch"],
+        "matchPackageNames": [
+          "/(.*/)?postgres$/",
+          "/(.*/)?mariadb$/",
+          "/(.*/)?mongo$/",
+          "/(.*/)?redis$/",
+          "/(.*/)?valkey$/"
+        ],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["major", "minor"],
+        "matchPackageNames": [
+          "/(.*/)?meilisearch$/"
+        ],
+        "enabled": false
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["patch"],
+        "matchPackageNames": [
+          "/(.*/)?meilisearch$/",
+          "ghcr.io/immich-app/immich-machine-learning",
+          "ghcr.io/immich-app/immich-server",
+          "ghcr.io/siderolabs/omni"
+        ],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["major", "minor", "patch"],
+        "matchPackageNames": [
+          "ghcr.io/esphome/esphome",
+          "ghcr.io/goauthentik/server",
+          "cloudflare/cloudflared",
+          "revenz/fileflows",
+          "ghcr.io/home-assistant/home-assistant",
+          "chromedp/headless-shell",
+          "wangqiru/ttrss",
+          "diygod/rsshub"
+        ],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["minor", "patch"],
+        "matchPackageNames": [
+          "anonaddy/anonaddy",
+          "certbot/dns-cloudflare",
+          "favonia/cloudflare-ddns",
+          "crowdsecurity/crowdsec",
+          "tiredofit/db-backup",
+          "nginx",
+          "simplelogin/app-ci",
+          "simplelogin/postfix",
+          "ghcr.io/bakito/adguardhome-sync",
+          "ghcr.io/moghtech/komodo-core",
+          "ghcr.io/ente-io/server",
+          "ghcr.io/ente-io/web",
+          "adguard/adguardhome",
+          "fosrl/pangolin",
+          "fosrl/gerbil",
+          "traefik",
+          "mvance/unbound",
+          "louislam/uptime-kuma",
+          "vaultwarden/server",
+          "ghcr.io/advplyr/audiobookshelf",
+          "garethgeorge/backrest",
+          "alpine/git",
+          "lscr.io/linuxserver/bazarr",
+          "ghcr.io/dgtlmoon/changedetection.io",
+          "dgtlmoon/sockpuppetbrowser",
+          "ghcr.io/raydak-labs/configarr",
+          "data.forgejo.org/oci/docker",
+          "data.forgejo.org/forgejo/runner",
+          "data.forgejo.org/forgejo/forgejo",
+          "ghcr.io/blakeblackshear/frigate",
+          "grimsi/gameyfin",
+          "ghcr.io/riddix/home-assistant-matter-hub",
+          "ghcr.io/karakeep-app/karakeep",
+          "lscr.io/linuxserver/kavita",
+          "sndxr/komf",
+          "gotson/komga",
+          "ghcr.io/danny-avila/librechat",
+          "ghcr.io/danny-avila/librechat-rag-api-dev-lite",
+          "lscr.io/linuxserver/lidarr",
+          "lmscommunity/lyrionmusicserver",
+          "ghcr.io/thephaseless/byparr",
+          "lscr.io/linuxserver/prowlarr",
+          "qmcgaw/gluetun",
+          "tmmrtn/mousehole",
+          "ghcr.io/open-webui/open-webui",
+          "lscr.io/linuxserver/plex",
+          "lscr.io/linuxserver/radarr",
+          "lscr.io/linuxserver/readarr",
+          "semaphoreui/semaphore",
+          "codeberg.org/emersion/gamja",
+          "codeberg.org/emersion/kimchi",
+          "codeberg.org/emersion/soju",
+          "lscr.io/linuxserver/sonarr",
+          "ghcr.io/suwayomi/suwayomi-server",
+          "lscr.io/linuxserver/tautulli",
+          "ghcr.io/games-on-whales/wolf",
+          "lscr.io/linuxserver/syncthing",
+          "filebrowser/filebrowser",
+          "ghcr.io/linkwarden/linkwarden",
+          "ghcr.io/siderolabs/omni",
+          "ghcr.io/immich-app/immich-machine-learning",
+          "ghcr.io/immich-app/immich-server",
+          "remnawave/*",
+          "mbentley/omada-controller",
+          "henrygd/beszel",
+          "dhi.io/eclipse-mosquitto",
+          "ghcr.io/koenkk/zigbee2mqtt",
+          "therobbiedavis/listenarr",
+          "ghcr.io/stuffanthings/qbit_manage",
+          "ghcr.io/autobrr/qui",
+          "fosrl/newt",
+          "mikenye/picard",
+          "lscr.io/linuxserver/beets",
+          "ghcr.io/music-assistant/server",
+          "stashapp/stash",
+          "ghcr.io/sissbruecker/linkding",
+          "ghcr.io/rustic-rs/rustic",
+          "ghcr.io/wg-easy/wg-easy",
+          "robertlordhood/chaptarr",
+          "ghcr.io/pennydreadful/bookshelf",
+          "basqpcez/mam-point-spender",
+          "mcuadros/ofelia",
+          "ghcr.io/matter-js/python-matter-server",
+          "ghcr.io/maintainerr/maintainerr",
+          "erikvl87/languagetool",
+          "ghcr.io/calibrain/shelfmark",
+          "pgautoupgrade/pgautoupgrade",
+          "healthchecks/healthchecks",
+          "ghcr.io/tphakala/birdnet-go",
+          "ghcr.io/seerr-team/seerr",
+          "myoung34/github-runner",
+          "luligu/matterbridge",
+          "ghcr.io/dictionarry-hub/profilarr",
+          "ghcr.io/dictionarry-hub/profilarr-parser",
+          "tecnativa/docker-socket-proxy",
+          "slskd/slskd"
+        ],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchManagers": ["docker-compose"],
+        "matchUpdateTypes": ["pin", "pinDigest", "digest"],
+        "automerge": true,
+        "automergeType": "pr"
+      },
+      {
+        "matchPackageNames": "lscr.io/linuxserver/lidarr",
+        "allowedVersions": "<8"
+      },
+      {
+        "matchPackageNames": "lscr.io/linuxserver/qbittorrent",
+        "allowedVersions": "<14"
+      },
+      {
+        "matchPackageNames": "lscr.io/linuxserver/tautulli",
+        "allowedVersions": "<2000"
+      },
+      {
+        "matchPackageNames": "lscr.io/linuxserver/beets",
+        "allowedVersions": "<2000"
+      },
+      {
+        "matchPackageNames": "mcuadros/ofelia",
+        "allowedVersions": "<3"
+      },
+      {
+        "matchPackageNames": "erikvl87/languagetool",
+        "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-dockerupdate-(?<patch>\\d+))?$"
+      }
+    ]
+  }
+}

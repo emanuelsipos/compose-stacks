@@ -1,0 +1,49 @@
+---
+services:
+  browser-sockpuppet-chrome:
+    image: dgtlmoon/sockpuppetbrowser:0.0.3@sha256:23a7be698216407648b6c78fc55de0411bde550635edc30347373c86a5176fad
+    container_name: browser-sockpuppet-chrome
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1024
+      - SCREEN_DEPTH=16
+      - MAX_CONCURRENT_CHROME_PROCESSES=10
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:0.55.8@sha256:5438423d5e906eff4e8f7886823482ad23f472bf7b8530ccaca89fb48c337882
+    container_name: changedetection
+    depends_on:
+      - browser-sockpuppet-chrome
+    volumes:
+      - /opt/docker/changedetection/:/datastore/
+    environment:
+      - PLAYWRIGHT_DRIVER_URL=ws://browser-sockpuppet-chrome:3000
+    env_file: .env
+    ports:
+      - '5000:5000'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  flareproxy:
+    image: mickey3721/flareproxy:latest@sha256:5d6b4ea0c6b9024a6de9933e18fe068f2a92504e5a41d3212036cf519885bbc3
+    container_name: flareproxy
+    depends_on:
+      flaresolverr:
+        condition: service_started
+    environment:
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
+      - TZ=${TZ}
+    expose:
+      - '8080'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  flaresolverr:
+    extends:
+      file: ../../_common/base.yaml
+      service: x-byparr

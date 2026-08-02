@@ -1,0 +1,186 @@
+---
+services:
+  addy:
+    image: anonaddy/anonaddy:v1.7.0@sha256:0bb66c068ab82f7f75a35cb27c8d1ffc9c1f73b75494ae9ed755f93de1ec7eb2
+    container_name: addy
+    depends_on:
+      - db
+      - valkey
+    volumes:
+      - /opt/docker/addy/addy/:/data/
+      - /opt/docker/addy/dkim_signing.conf:/etc/rspamd/override.d/dkim_signing.conf
+      # - /opt/docker/addy/greylist.conf:/etc/rspamd/override.d/greylist.conf
+      - /opt/docker/addy/letsencrypt/certs/:/mnt/certs/:ro
+      # - /opt/docker/addy/fix-postfix.sh:/etc/cont-init.d/16-fix-postfix.sh:ro
+    env_file: .env
+    ports:
+      - '25:25'
+      # - "127.0.0.1:8000:8000"
+    networks:
+      ipv6_native:
+        ipv6_address: "${ADDY_IPV6_ADDRESS:?Addy IPv6 address required}"
+      default:
+
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+  certbot:
+    image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
+    container_name: addy_certbot
+    volumes:
+      - /opt/docker/addy/letsencrypt/certs/:/etc/letsencrypt/
+      - /opt/docker/addy/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
+    command: >
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${ANONADDY_DOMAIN} -d *.${ANONADDY_DOMAIN} --agree-tos --non-interactive
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  cloudflare-ddns-real:
+    image: favonia/cloudflare-ddns:1.17.0@sha256:61013368c8f95981c0bb8bf56d962078d8b4e95724a554fa2dabb20d6e478097
+    container_name: addy_cloudflare-ddns-real
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - CLOUDFLARE_API_TOKEN=${CF_API_TOKEN}
+      - DOMAINS=mail.${ANONADDY_DOMAIN}
+      - PROXIED=false
+      # - IP6_PROVIDER=none
+    network_mode: "service:addy" # host
+    cap_add:
+      - SETUID
+      - SETGID
+    cap_drop:
+      - all
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.3@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+    container_name: addy_cloudflared
+    depends_on:
+      - nginx
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.8@sha256:2f527c9bb8b367120eb08b82890aa912ce96bfa1ada93dda0721700e4b4e0dde
+    container_name: addy_crowdsec
+    depends_on:
+      - docker-socket-proxy
+    volumes:
+      - /opt/docker/addy/crowdsec/:/etc/crowdsec/
+      - /opt/docker/addy/crowdsec/db/:/var/lib/crowdsec/data/
+    environment:
+      COLLECTIONS: crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/postfix crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/base-http-scenarios crowdsecurity/whitelist-good-actors
+      ENROLL_INSTANCE_NAME: addy
+      ENROLL_TAGS: docker
+      GID: "1000"
+      PARSERS: crowdsecurity/whitelists
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    ports:
+      - '127.0.0.1:6060:6060'
+      - '127.0.0.1:8080:8080'
+    networks:
+      default:
+      socket_proxy:
+    command: -t
+    healthcheck:
+      test:
+        - CMD
+        - cscli
+        - lapi
+        - status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  db:
+    image: mariadb:10@sha256:be981e4113326ada8d6004174dd09eeaefc03094037f811182a52d4f2e737350
+    container_name: addy_db
+    volumes:
+      - /opt/docker/addy/db/:/var/lib/mysql/
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    command:
+      - "mysqld"
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  db-backup:
+    image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
+    depends_on:
+      - db
+    volumes:
+      - /opt/docker/addy/backup/:/backup/
+    environment:
+      DB01_TYPE: mysql
+      DB01_HOST: ${DB_HOST}
+      DB01_NAME: ${DB_DATABASE}
+      DB01_USER: ${DB_USERNAME}
+      DB01_PASS: ${DB_PASSWORD}
+      CONTAINER_ENABLE_MONITORING: FALSE
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  docker-socket-proxy:
+    container_name: addy_docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      POST: 0
+    networks:
+      - socket_proxy
+    extends:
+      file: ../../_common/base.yaml
+      service: x-docker-socket-proxy
+
+  nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    container_name: addy_nginx
+    depends_on:
+      - addy
+    volumes:
+      - /opt/docker/addy/nginx/conf.d/:/etc/nginx/conf.d/:ro
+      - /opt/docker/addy/nginx/ssl/:/etc/nginx/ssl/:ro
+      - /opt/docker/addy/letsencrypt/certs/:/etc/letsencrypt/:ro
+      - /opt/docker/addy/letsencrypt/www/:/var/www/:ro
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+  valkey:
+    image: valkey/valkey:8-bookworm@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571
+    container_name: addy_valkey
+    extends:
+      file: ../../_common/base.yaml
+      service: x-redis
+
+networks:
+  ipv6_native:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv6: "routed"
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: ${ADDY_IPV6_SUBNET:?Addy IPv6 subnet required}
+          gateway: ${ADDY_IPV6_GATEWAY:?Addy IPv6 gateway required}
+  socket_proxy:
+    driver: bridge
+    internal: true

@@ -1,0 +1,49 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: healthchecks_postgres
+    volumes:
+      - /opt/docker/healthchecks/db/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_DB: ${PG_DB:-hc}
+    networks:
+      - db
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  service.healthchecks:
+    image: healthchecks/healthchecks:v4.3@sha256:cd7bcd94350818b3944f82eb5995f48bdeab8c8627977578a569ffa73f56f56f
+    container_name: healthchecks
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/healthchecks/web/logo.png:/static/img/logo.png
+    environment:
+      DB: postgres
+      DB_HOST: database.postgres
+      DB_NAME: ${PG_DB:-hc}
+      DB_USER: ${PG_USER:-postgres}
+      DB_PASSWORD: ${PG_PASS}
+      DB_PORT: 5432
+    env_file: .env
+    networks:
+      - db
+      - pangolin
+    command: bash -c 'while !</dev/tcp/$${DB_HOST}/$${DB_PORT}; do sleep 1; done; uwsgi /opt/healthchecks/docker/uwsgi.ini'
+    expose:
+      - '8000'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+networks:
+  db:
+    internal: true
+  pangolin:
+    external: true
+    name: pangolin

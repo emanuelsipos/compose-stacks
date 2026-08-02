@@ -1,0 +1,14 @@
+---
+services:
+  syncthing:
+    image: lscr.io/linuxserver/syncthing:2.1.2@sha256:ae909bee7c41f516be03fd7de72317a44f4a043bcba76884de941b99407b6957
+    container_name: syncthing-${HOSTNAME}
+    volumes:
+      - /opt/docker/syncthing-${HOSTNAME}/:/config/
+      - ${SYNC_PATH}:${SYNC_PATH}
+    env_file: .env
+    network_mode: host
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    hostname: ${HOSTNAME}

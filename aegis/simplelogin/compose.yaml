@@ -1,0 +1,199 @@
+---
+x-cloudflared-base: &cloudflared-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: cloudflare/cloudflared:2026.7.3@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+  depends_on:
+    - nginx
+x-sl-base: &sl-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: simplelogin/app-ci:v4.81.6@sha256:3abf622d85fbcb090566927c94733ad1a9b1edb215e3a1db61c1e2c116229ee5
+  volumes:
+    - /opt/docker/simplelogin/pgp/:/sl/pgp/
+    - /opt/docker/simplelogin/upload/:/code/static/upload/
+    - /opt/docker/simplelogin/dkim.key:/dkim.key:ro
+    - /opt/docker/simplelogin/dkim.pub.key:/dkim.pub.key:ro
+  env_file: .env
+
+services:
+  app:
+    container_name: sl-app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    <<: *sl-base
+
+  certbot:
+    image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
+    container_name: certbot
+    depends_on:
+      - nginx
+    volumes:
+      - /opt/docker/simplelogin/letsencrypt/certs/:/etc/letsencrypt/
+      - /opt/docker/simplelogin/letsencrypt/www/:/var/www/
+      - /opt/docker/simplelogin/cloudflare.ini:/cloudflare.ini:ro
+    env_file: .env
+    command: >
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${CERTBOT_DOMAIN1} -d ${CERTBOT_DOMAIN2} --agree-tos --non-interactive --email ${CERTBOT_EMAIL}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  cloudflare-ddns-real:
+    image: favonia/cloudflare-ddns:1.17.0@sha256:61013368c8f95981c0bb8bf56d962078d8b4e95724a554fa2dabb20d6e478097
+    container_name: cloudflare-ddns-real
+    environment:
+      - PUID=1000
+      - PGID=1000
+    env_file: .env
+    network_mode: host
+    cap_add:
+      - SETUID
+      - SETGID
+    cap_drop:
+      - all
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+
+  cloudflared:
+    container_name: addy_cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    <<: *cloudflared-base
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.8@sha256:2f527c9bb8b367120eb08b82890aa912ce96bfa1ada93dda0721700e4b4e0dde
+    container_name: crowdsec
+    depends_on:
+      - docker-socket-proxy
+    volumes:
+      - /opt/docker/simplelogin/crowdsec/data:/var/lib/crowdsec/data
+      - /opt/docker/simplelogin/crowdsec/config/:/etc/crowdsec/
+    environment:
+      - COLLECTIONS=crowdsecurity/postfix crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/base-http-scenarios crowdsecurity/whitelist-good-actors
+      - CUSTOM_HOSTNAME=simplelogin
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+    ports:
+      - '127.0.0.1:8080:8080'
+    networks:
+      default:
+      socket_proxy:
+
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+  db-backup:
+    image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
+    container_name: simplelogin_db-backup
+    depends_on:
+      - postgres
+    volumes:
+      - /opt/docker/simplelogin/backups/:/backup/
+    env_file: .env
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  docker-socket-proxy:
+    container_name: simplelogin_docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      POST: 0
+    networks:
+      - socket_proxy
+    extends:
+      file: ../../_common/base.yaml
+      service: x-docker-socket-proxy
+
+  email:
+    container_name: sl-email
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: [ "python", "email_handler.py" ]
+    <<: *sl-base
+
+  init:
+    container_name: sl-init
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    command: [ "python", "init_app.py" ]
+    <<: *sl-base
+
+  job-runner:
+    container_name: sl-job-runner
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: [ "python", "job_runner.py" ]
+    <<: *sl-base
+
+  migration:
+    container_name: sl-migration
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: [ "alembic", "upgrade", "head" ]
+    <<: *sl-base
+
+  nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    container_name: nginx
+    depends_on:
+      - app
+    volumes:
+      - /opt/docker/simplelogin/nginx/conf.d/:/etc/nginx/conf.d/:ro
+      - /opt/docker/simplelogin/nginx/ssl/:/etc/nginx/ssl/:ro
+      - /opt/docker/simplelogin/letsencrypt/certs/:/etc/letsencrypt/:ro
+      - /opt/docker/simplelogin/letsencrypt/www/:/var/www/:ro
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+  postfix:
+    image: simplelogin/postfix:4.3.3@sha256:b0e945aee53a4d0e2a1b3e4767ddd2a96e94c8123b89badca4e02e9338c61ab5
+    container_name: postfix
+    depends_on:
+      - email
+    volumes:
+      - /opt/docker/simplelogin/letsencrypt/certs/:/mnt/certs/:ro
+      - /opt/docker/simplelogin/postfix-data/:/etc/postfix/custom-data/:rw
+    env_file: .env
+    ports:
+      - '25:25'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: sl-db
+    volumes:
+      - /opt/docker/simplelogin/db/:/var/lib/postgresql/
+    env_file: .env
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 10s
+      retries: 3
+      start_period: 1s
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.0.0.0/24
+          gateway: 10.0.0.1
+  socket_proxy:
+    driver: bridge
+    internal: true

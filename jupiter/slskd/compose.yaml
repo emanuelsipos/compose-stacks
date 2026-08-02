@@ -1,0 +1,17 @@
+---
+services:
+  slskd:
+    image: slskd/slskd:0.26.0@sha256:ecd4026d4f8fb504e2cc55323efa2c1f5b56d20d3686b018249cc36b48ea17a6
+    container_name: slskd
+    volumes:
+      - /opt/docker/slskd/:/app/
+      - /mnt/data3/torrents/music/:/music/
+    env_file: .env
+    ports:
+      - '5030:5030'
+      - '5031:5031'
+      - '50300:50300'
+    user: "1000:1000"
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

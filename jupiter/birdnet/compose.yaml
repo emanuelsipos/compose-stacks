@@ -1,0 +1,16 @@
+---
+services:
+  birdnet-go:
+    image: ghcr.io/tphakala/birdnet-go:nightly-20260322@sha256:dd2dae90ec7b6fc228d79332cfcf0c4ac281609f34c9e50a9ef644e67f00f481
+    container_name: birdnet-go
+    volumes:
+      - /opt/docker/birdnet/config/:/config/
+      - /opt/docker/birdnet/data/:/data/
+    env_file: .env
+    ports:
+      - '8080:8080'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    tmpfs:
+      - /config/hls/:exec,size=50M,uid=${BIRDNET_UID:-1000},gid=${BIRDNET_GID:-1000},mode=0755 # Mount HLS stream segment files directory as tmpfs (RAM disk)

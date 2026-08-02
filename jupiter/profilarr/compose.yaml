@@ -1,0 +1,45 @@
+---
+x-profilarr-base: &profilarr-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: ghcr.io/dictionarry-hub/profilarr:2.0.9@sha256:7a9b5112ff227320d17c65ab643a5d875713e6235991ef04a8e482ec51427902
+  env_file: .env
+  environment: &profilarr-env
+    PARSER_HOST: parser
+    PARSER_PORT: 5000
+  depends_on:
+    parser:
+      condition: service_healthy
+
+services:
+  parser:
+    image: ghcr.io/dictionarry-hub/profilarr-parser:2.0.9@sha256:16b22ef6485e135cc660cd511697c637d44649753d02397c9374e1317cfaaf0e
+    container_name: profilarr-parser
+    expose:
+      - '5000'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  profilarr-anime:
+    container_name: profilarr-anime
+    volumes:
+      - /opt/docker/profilarr-anime/:/config/
+    environment:
+      <<: *profilarr-env
+      ORIGIN: https://profilarr-anime.${PUBLIC_DOMAIN}
+    ports:
+      - '6868:6868'
+    <<: *profilarr-base
+
+  profilarr-tv:
+    container_name: profilarr-tv
+    volumes:
+      - /opt/docker/profilarr-tv/:/config/
+    environment:
+      <<: *profilarr-env
+      ORIGIN: https://profilarr-tv.${PUBLIC_DOMAIN}
+    ports:
+      - '6869:6868'
+    <<: *profilarr-base

@@ -1,0 +1,13 @@
+---
+services:
+  matterbridge:
+    image: luligu/matterbridge:3.10.3@sha256:f41edac53b68a09e2c8de7efa0cd527276c2e10e68692610df0b798c93e89605
+    container_name: matterbridge
+    volumes:
+      - /opt/docker/matterbridge/Matterbridge/:/root/Matterbridge/
+      - /opt/docker/matterbridge/.matterbridge/:/root/.matterbridge/
+      - /opt/docker/matterbridge/.mattercert/:/root/.mattercert/
+    network_mode: host
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

@@ -1,0 +1,16 @@
+---
+services:
+  kavita:
+    image: lscr.io/linuxserver/kavita:0.9.0@sha256:ab90fff3a4e214a723274e1cbd32df6a205099e111d1c37f17d3d40341f8c065
+    container_name: kavita
+    volumes:
+      - /opt/docker/kavita/:/config/
+      - /mnt/data3/media/:/data3/media/
+      - /mnt/data3/torrents/:/data3/torrents/
+      - /mnt/data2/torrents/manga/:/data2/torrents/manga/
+    env_file: .env
+    ports:
+      - '5000:5000'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

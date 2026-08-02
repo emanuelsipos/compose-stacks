@@ -1,0 +1,118 @@
+---
+services:
+  docker-socket-proxy:
+    container_name: qbittorrent_docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      POST: 1
+    networks:
+      - socket_proxy
+    extends:
+      file: ../../_common/base.yaml
+      service: x-docker-socket-proxy
+
+  mam-point-spender:
+    image: basqpcez/mam-point-spender:v2.3.0@sha256:e5a0da7b7b60a3f7563016e7d34fea0e071bbc9c2b203428e085957c062904b7
+    container_name: mam-point-spender
+    depends_on:
+      mousehole:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/mam-point-spender/work/:/work/
+      - /opt/docker/mousehole/state.json:/app/state.json:ro
+    environment:
+      TZ: ${TZ}
+      MAM_BUFFER: ${MAM_BUFFER}
+      MAM_WEDGEHOURS: ${MAM_WEDGEHOURS}
+      MAM_VIP: ${MAM_VIP} # Published image quirk: any NON-empty value enables VIP.
+      MAM_WORKDIR: /work
+    # network_mode: "service:gluetun"
+    command: [ "tail", "-f", "/dev/null" ]
+    cap_drop: [ "ALL" ]
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+
+  mam-point-spender-ofelia:
+    image: mcuadros/ofelia:0.3.22@sha256:efcbe2c5cf658a25de6443c1462d653f9cc03791d642e01fc6c638a00f97e492
+    depends_on:
+      - docker-socket-proxy
+      - mam-point-spender
+    volumes:
+      - /opt/docker/mam-point-spender/ofelia.ini:/etc/ofelia/config.ini:ro
+    environment:
+      - TZ=${TZ}
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+    networks:
+      default:
+      socket_proxy:
+    command: daemon --config=/etc/ofelia/config.ini
+    cap_drop: [ "ALL" ]
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+
+  mousehole:
+    image: tmmrtn/mousehole:0.5.0@sha256:2fc02b12362581e60bfd6adba788bda9eda93f8f31ed089581eeabcee4518b0d
+    container_name: mousehole
+    # depends_on:
+    #   gluetun:
+    #     condition: service_healthy
+    volumes:
+      - /opt/docker/mousehole/:/var/lib/mousehole/
+    environment:
+      TZ: ${TZ}
+    # network_mode: "service:gluetun"
+    ports:
+      - '5010:5010'
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fs http://localhost:5010/state || exit 1" ]
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  qbittorrent-nox:
+    image: ghcr.io/qbittorrent/docker-qbittorrent-nox:5.1.4-2@sha256:85fe2690f418dabffc4907276b3cdffcb7880c7114157b32f932d3b97bac45af
+    container_name: qbittorrent
+    # depends_on:
+    #   gluetun:
+    #     condition: service_healthy
+    volumes:
+      - /opt/docker/qbittorrent/:/config/
+      - /mnt/data/:/data/
+      - /mnt/data2/:/data2/
+      - /mnt/data3/:/data3/
+    environment:
+      - TZ=${TZ}
+      - PAGID=${PAGID}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=${UMASK}
+      - QBT_WEBUI_PORT=${QBT_WEBUI_PORT}
+      - QBT_TORRENTING_PORT=${QBT_TORRENTING_PORT}
+      - QBT_LEGAL_NOTICE=${QBT_LEGAL_NOTICE}
+    # network_mode: "service:gluetun"
+    ports:
+      - '8090:8090'
+      - '55955:55955'
+      - '55955:55955/udp'
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fSs http://localhost:${QBT_WEBUI_PORT:-8090}/ || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    stop_grace_period: 30m
+    tmpfs:
+      - /tmp
+    tty: true
+
+networks:
+  socket_proxy:
+    driver: bridge
+    internal: true

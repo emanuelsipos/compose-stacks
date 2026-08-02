@@ -1,0 +1,42 @@
+---
+x-radarr-base: &radarr-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: lscr.io/linuxserver/radarr:6.3.0@sha256:e35056574cdc695a9ee745aa1ecda9eab3842450bf4b7b8471b023790fa3861d
+  env_file: .env
+  healthcheck:
+    test: [ "CMD-SHELL", "curl -fSs http://localhost:7878/ping || exit 1" ]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
+x-vol-data: &vol-data /mnt/data/:/data/
+
+services:
+  radarr-anime:
+    container_name: radarr-anime
+    volumes:
+      - *vol-data
+      - /opt/docker/radarr-anime/:/config/
+    ports:
+      - '7878:7878'
+    <<: *radarr-base
+
+  radarr-tv:
+    container_name: radarr-tv
+    volumes:
+      - *vol-data
+      - /opt/docker/radarr-tv/:/config/
+    ports:
+      - '7879:7878'
+    <<: *radarr-base
+
+  radarr-tv-4k:
+    container_name: radarr-tv-4k
+    volumes:
+      - *vol-data
+      - /opt/docker/radarr-tv-4k/:/config/
+    ports:
+      - '7880:7878'
+    <<: *radarr-base

@@ -1,0 +1,34 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: semaphore_postgres
+    volumes:
+      - /opt/docker/semaphore/db/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-semaphore}
+      POSTGRES_DB: ${PG_DB:-semaphore}
+    ports:
+      - '127.0.0.1:5432:5432'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  service.semaphore:
+    image: semaphoreui/semaphore:v2.18.29@sha256:7c7504614c4795b0e0670fb2d4400d35e2302204609664943cb16308b7a6f1e4
+    container_name: semaphore
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    environment:
+      SEMAPHORE_DB_DIALECT: postgres
+      SEMAPHORE_DB_HOST: 127.0.0.1
+      SEMAPHORE_DB_NAME: ${PG_DB:-semaphore}
+      SEMAPHORE_DB_USER: ${PG_USER:-semaphore}
+      SEMAPHORE_DB_PASS: ${PG_PASS}
+    env_file: .env
+    network_mode: host
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

@@ -1,0 +1,46 @@
+---
+x-komga-base: &komga-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: gotson/komga:1.25.0@sha256:c4f9885fc077e2e9cd684dc95e8f6cfa5e33b100b46712b2de7f5cc2ff59e6fb
+  env_file: .env
+  user: "${PUID:-1000}:${PGID:-1000}"
+x-vol-media: &vol-media /mnt/data3/media/:/data3/media/
+x-vol-torrents: &vol-torrents /mnt/data3/torrents/:/data3/torrents/
+
+services:
+  komga:
+    container_name: komga
+    volumes:
+      - *vol-media
+      - *vol-torrents
+      - /opt/docker/komga/:/config/
+      - /mnt/data2/torrents/manga/:/data2/torrents/manga/
+    environment:
+      - MALLOC_ARENA_MAX=2
+      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms4g -Xmx6g -XX:MaxDirectMemorySize=2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError
+    ports:
+      - '25600:25600'
+    <<: *komga-base
+    deploy:
+      resources:
+        limits:
+          memory: 10g
+
+  komga2:
+    container_name: komga2
+    volumes:
+      - *vol-media
+      - *vol-torrents
+      - /opt/docker/komga2/:/config/
+    environment:
+      - MALLOC_ARENA_MAX=2
+      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms2g -Xmx3g -XX:MaxDirectMemorySize=1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication
+    ports:
+      - '25601:25600'
+    <<: *komga-base
+    deploy:
+      resources:
+        limits:
+          memory: 4g

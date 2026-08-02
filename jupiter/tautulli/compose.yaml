@@ -1,0 +1,46 @@
+---
+x-git-updater: &git-updater
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: alpine/git:v2.54.0@sha256:729da2347ce652f30476b064198577fe12e1147e58499be9f343039343ef2cee
+  command:
+    - "-c"
+    - |
+      echo "Starting Git Auto-Updater..."
+      while true; do
+        echo "[ $$(date) ] Scanning for git repositories..."
+
+        # Dynamically find all .git folders at any depth
+        find /git -type d -name ".git" | while read gitdir; do
+          repo_dir=$$(dirname "$$gitdir")
+          echo "--> Pulling updates for $$repo_dir"
+          git -C "$$repo_dir" pull
+        done
+
+        echo "Update complete. Sleeping for 1 hour..."
+        sleep 3600
+      done
+  entrypoint: /bin/sh
+  user: ${PUID}:${PGID}
+
+services:
+  git-updater:
+    container_name: git-auto-updater
+    volumes:
+      - /opt/docker/tautulli/git/:/git/
+    <<: *git-updater
+
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:2.17.2@sha256:f0c3e7228c84ad0539f9d5aa9f56c79ef19f6c8d0ad61199d803d32a7b0e080b
+    container_name: tautulli
+    volumes:
+      - /opt/docker/tautulli/config/:/config/
+      - /opt/docker/tautulli/custom-cont-init.d/:/custom-cont-init.d/
+      - /opt/docker/tautulli/git/:/opt/git/
+    env_file: .env
+    ports:
+      - '8181:8181'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

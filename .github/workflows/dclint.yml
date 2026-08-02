@@ -1,0 +1,67 @@
+name: Docker Compose Linting
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Run daily at midnight UTC
+  # pull_request:
+  workflow_dispatch:
+jobs:
+  lint-compose:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install dclint
+        run: npm install --g dclint
+
+      - name: Lint Compose files
+        run: |
+          COMPOSE_FILES=$(find . -name "*compose*.yml" -o -name "*compose*.yaml" -o -name "*docker*.yml" -o -name "*docker*.yaml")
+          CHANGES_MADE=false
+
+          for file in $COMPOSE_FILES; do
+            echo "Linting $file"
+            if dclint --fix "$file"; then
+              if git diff --exit-code "$file" > /dev/null; then
+                echo "No changes needed for $file"
+              else
+                echo "Applied fixes to $file"
+                git add "$file"
+                CHANGES_MADE=true
+              fi
+            else
+              echo "Failed to lint $file, but continuing..."
+            fi
+          done
+
+          echo "CHANGES_MADE=$CHANGES_MADE" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        if: env.CHANGES_MADE == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          commit-message: "Fix Docker Compose files with dclint"
+          title: "🐳 Docker Compose Linting Fixes"
+          body: |
+            This PR contains automatic fixes applied by `dclint` to Docker Compose files.
+            These changes improve compliance with best practices and resolve common issues.
+          branch: compose-lint-fixes
+          # branch-suffix: timestamp
+          base: main
+          delete-branch: true

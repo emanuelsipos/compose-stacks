@@ -1,0 +1,70 @@
+---
+x-suwayomi-base: &suwayomi-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: ghcr.io/suwayomi/suwayomi-server:v2.3.2298@sha256:1310a51391418d77614aabe990f43213bda818275fcc408b3a21bfe419813ec4
+  user: "${PUID:-1000}:${PGID:-1000}"
+  environment: &suwayomi-env
+    FLARESOLVERR_ENABLED: "true"
+    FLARESOLVERR_URL: http://flaresolverr:8191
+    JAVA_TOOL_OPTIONS: -Xms512m -Xmx2048m
+  env_file: .env
+  deploy:
+    resources:
+      limits:
+        memory: 2560M
+
+services:
+  flaresolverr:
+    extends:
+      file: ../../_common/base.yaml
+      service: x-byparr
+
+  suwayomi-manga:
+    container_name: suwayomi-manga
+    volumes:
+      - /opt/docker/suwayomi-manga/:/home/suwayomi/.local/share/Tachidesk/
+      - /mnt/data3/media/manga/:/home/suwayomi/.local/share/Tachidesk/downloads/
+    environment:
+      <<: *suwayomi-env
+      FLARESOLVERR_SESSION_NAME: suwayomi-manga
+    ports:
+      - '4567:4567'
+    <<: *suwayomi-base
+
+  suwayomi-manga2:
+    container_name: suwayomi-manga2
+    volumes:
+      - /opt/docker/suwayomi-manga2/:/home/suwayomi/.local/share/Tachidesk/
+      - /mnt/data3/media/manga2/:/home/suwayomi/.local/share/Tachidesk/downloads/
+    environment:
+      <<: *suwayomi-env
+      FLARESOLVERR_SESSION_NAME: suwayomi-manga2
+    ports:
+      - '4568:4567'
+    <<: *suwayomi-base
+
+  suwayomi-webtoons:
+    container_name: suwayomi-webtoons
+    volumes:
+      - /opt/docker/suwayomi-webtoons/:/home/suwayomi/.local/share/Tachidesk/
+      - /mnt/data3/media/webtoons/:/home/suwayomi/.local/share/Tachidesk/downloads/
+    environment:
+      <<: *suwayomi-env
+      FLARESOLVERR_SESSION_NAME: suwayomi-webtoons
+    ports:
+      - '4569:4567'
+    <<: *suwayomi-base
+
+  suwayomi-webtoons2:
+    container_name: suwayomi-webtoons2
+    volumes:
+      - /opt/docker/suwayomi-webtoons2/:/home/suwayomi/.local/share/Tachidesk/
+      - /mnt/data3/media/webtoons2/:/home/suwayomi/.local/share/Tachidesk/downloads/
+    environment:
+      <<: *suwayomi-env
+      FLARESOLVERR_SESSION_NAME: suwayomi-webtoons2
+    ports:
+      - '4570:4567'
+    <<: *suwayomi-base

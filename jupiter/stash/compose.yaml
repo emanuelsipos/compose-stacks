@@ -1,0 +1,31 @@
+---
+services:
+  flaresolverr:
+    extends:
+      file: ../../_common/base.yaml
+      service: x-byparr
+
+  headless-shell:
+    image: chromedp/headless-shell:152.0.7939.3@sha256:f7e7ac721b023cb8717f8108aef8b3e49995fb1e5a912f41e570c29e45d24961
+    container_name: headless-shell
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  stash:
+    image: stashapp/stash:v0.31.1@sha256:df744af5a0c976e2ec671052ecc1f8a9aa757fa12b8f9930b59910b7295f0da6
+    container_name: stash
+    volumes:
+      - /opt/docker/stash/config/:/root/.stash/
+      - /opt/docker/stash/metadata/:/metadata/
+      - /opt/docker/stash/cache/:/cache/
+      - /opt/docker/stash/generated/:/generated/
+      - /mnt/data/torrents/:/mnt/data/torrents/
+    env_file: .env
+    ports:
+      - '9999:9999'
+    devices:
+      - /dev/dri/:/dev/dri/
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
