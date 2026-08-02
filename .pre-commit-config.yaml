@@ -1,0 +1,11 @@
+---
+repos:
+  - repo: local
+    hooks:
+      - id: dclint-fix
+        name: dclint --fix
+        entry: dclint --fix
+        language: node
+        additional_dependencies:
+          - dclint@3.1.0
+        files: '(^|/)compose\.ya?ml$'
