@@ -18,8 +18,10 @@ services:
     volumes:
       - /opt/docker/karakeep/meilisearch/:/meili_data/
     environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       MEILI_NO_ANALYTICS: "true"
-    env_file: .env
+      MEILI_UPGRADE_DB: "true"
+    user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults

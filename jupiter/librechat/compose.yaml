@@ -52,11 +52,11 @@ services:
     image: getmeili/meilisearch:v1.51.0@sha256:a9eb29ee09ab4943db3b4c68620bd6f3382e6b2b0ac4431c0e607b48dbcd4c14
     container_name: LibreChat_meilisearch
     volumes:
-      - /opt/docker/librechat/meili_data_v1.12/:/meili_data/
+      - /opt/docker/librechat/meilisearch/:/meili_data/
     environment:
-      - MEILI_HOST=http://meilisearch:7700
-      - MEILI_NO_ANALYTICS=true
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_UPGRADE_DB: "true"
     user: 1000:1000
     extends:
       file: ../../_common/base.yaml
