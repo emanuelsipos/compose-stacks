@@ -1,0 +1,32 @@
+---
+services:
+  postgresql:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: qui_postgres
+    volumes:
+      - /opt/docker/qui/database/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-qui}
+      POSTGRES_DB: ${PG_DB:-qui}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  qui:
+    image: ghcr.io/autobrr/qui:v1.24.0@sha256:c1531b69a116b2572f69c76e6e02990b20ca04ef6550c883009df9ebcade1aba
+    container_name: qui
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/qui/config/:/config/
+      - /mnt/data/:/data/
+      - /mnt/data2/:/data2/
+      - /mnt/data3/:/data3/
+    env_file: .env
+    ports:
+      - '7476:7476'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

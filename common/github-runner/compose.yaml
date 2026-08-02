@@ -1,0 +1,31 @@
+---
+services:
+  worker:
+    image: myoung34/github-runner:2.336.0-ubuntu-noble@sha256:c803ddbc5b91961aabf3411c6336cb2c838cdaa2f917f76654c15a1948934817
+    environment:
+      REPO_URL: https://github.com/example/repo
+      RUNNER_NAME_PREFIX: archon-runner
+      APP_ID: ${APP_ID}
+      APP_PRIVATE_KEY: ${APP_PRIVATE_KEY}
+      RUNNER_SCOPE: "org"
+      ORG_NAME: ${ORG_NAME}
+      LABELS: linux,arm64
+      EPHEMERAL: 1
+      RUN_AS_ROOT: false
+      RUNNER_WORKDIR: /home/runner/_work
+      UNSET_CONFIG_VARS: true
+      START_DOCKER_SERVICE: true
+    cpu_shares: 128
+    deploy:
+      replicas: ${RUNNER_REPLICAS}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    # Required for Docker-in-Docker (DinD): runner builds CI container images
+    # inside the container. Mitigations: ephemeral runners (EPHEMERAL: 1),
+    # tmpfs-only working state, org-scoped token (not repo-scoped PAT).
+    privileged: true
+    tmpfs:
+      - /var/lib/docker:exec,mode=711
+      - /var/run:exec,mode=711
+      - /home/runner/_work:exec,mode=711

@@ -1,0 +1,38 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: chaptarr_postgres
+    volumes:
+      - /opt/docker/chaptarr/db/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-chaptarr}
+      POSTGRES_DB: ${PG_DB:-chaptarr-main}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  service.chaptarr:
+    image: robertlordhood/chaptarr:latest@sha256:912f4f5b3049b478e8f76a05945999e5faafb94cd6e4976544d2334f011a11a1
+    container_name: chaptarr
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/chaptarr/config/:/config/
+      - /mnt/data2/:/data2/ # :ro
+    environment:
+      Chaptarr__Postgres__Host: database.postgres
+      Chaptarr__Postgres__Port: 5432
+      Chaptarr__Postgres__User: ${PG_USER:-chaptarr}
+      Chaptarr__Postgres__Password: ${PG_PASS}
+      Chaptarr__Postgres__MainDb: ${PG_DB:-chaptarr-main}
+      Chaptarr__Postgres__LogDb: chaptarr-log
+      Chaptarr__Postgres__CacheDb: chaptarr-cache
+    env_file: .env
+    ports:
+      - '8789:8789'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

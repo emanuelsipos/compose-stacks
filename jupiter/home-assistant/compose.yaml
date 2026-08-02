@@ -1,0 +1,24 @@
+---
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.7.4@sha256:5a531753cea96444200158fc2b0ac7ccd739291ec50414877b396de6e0bb29b3
+    container_name: homeassistant
+    volumes:
+      - /opt/docker/home-assistant/:/config/
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus/:/run/dbus/:ro
+    network_mode: host
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  matter-server:
+    image: ghcr.io/matter-js/python-matter-server:8.1.2@sha256:6827e352011e2d8c2bde771e446fcf72acc49150ef66bad978816bac1762aad3
+    container_name: matter-server
+    volumes:
+      - /opt/docker/matter-server/:/data/
+      # - /run/dbus:/run/dbus:ro # Required for Bluetooth via D-Bus
+    network_mode: host
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

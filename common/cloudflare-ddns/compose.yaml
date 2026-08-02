@@ -1,0 +1,15 @@
+---
+services:
+  cloudflare-ddns-real:
+    image: favonia/cloudflare-ddns:1.17.0@sha256:61013368c8f95981c0bb8bf56d962078d8b4e95724a554fa2dabb20d6e478097
+    env_file: .env
+    network_mode: host
+    cap_add:
+      - SETUID
+      - SETGID
+    cap_drop:
+      - all
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true

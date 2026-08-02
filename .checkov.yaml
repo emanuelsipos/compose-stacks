@@ -1,0 +1,32 @@
+# .checkov.yaml
+# Checkov configuration for GitHub Actions scanning.
+#
+# Scope: .github/workflows/ only — compose files are handled by KICS.
+#
+# Skip rationale is documented per rule. Do not add global skips without
+# a clear reason — if a finding is file-specific, use an inline comment
+# in the workflow file instead:
+#   key: value  # checkov:skip=CKV_GHA_X:REASON
+
+framework:
+    - github_actions
+
+skip-check:
+    # ── Owned by Renovate ─────────────────────────────────────────────────
+    # Renovate pins all actions to full commit SHAs and keeps them updated.
+    # Checkov flagging this would create duplicate, conflicting PRs.
+    - CKV_GHA_3  # Ensure GitHub Actions are pinned to a full SHA
+
+    # ── workflow_dispatch inputs ───────────────────────────────────────────
+    # CKV_GHA_7 (EmptyWorkflowDispatch) requires workflow_dispatch: {} to
+    # enforce reproducible builds. That makes sense for build/release pipelines
+    # but not for this security-scan workflow, which uses inputs intentionally
+    # (dry_run, scanners). Suppress globally — every workflow in this repo
+    # that has dispatch inputs is a scan/ops trigger, not a build artifact.
+    - CKV_GHA_7
+
+    # ── Owned by gitleaks ─────────────────────────────────────────────────
+    # Secret detection in workflow files is covered by the separate gitleaks
+    # action. Suppress here to avoid duplicate findings.
+    - CKV_SECRET_6   # Base64 High Entropy String
+    - CKV_SECRET_80  # Generic Secret (adjust IDs if your checkov version differs)

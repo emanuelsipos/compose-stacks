@@ -1,0 +1,15 @@
+---
+services:
+  rustic:
+    image: ghcr.io/rustic-rs/rustic:v0.11.3@sha256:3b2adbf50e4443e7b736339efdbb00f6eec5d9897ae0843f526cdab7fc40d45f
+    container_name: rustic
+    volumes:
+      - /opt/docker/rustic/config/:/.config/rustic/:ro
+      - /opt/docker/rustic/cache/:/.cache/rustic/
+      - /opt/docker/rustic/curl:/curl
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      - /opt/:/backup/opt/
+      - /root/:/backup/root/
+      - /home/:/backup/home/
+    env_file: .env
+    command: backup

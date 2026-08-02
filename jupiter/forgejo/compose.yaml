@@ -1,0 +1,101 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: forgejo_postgres
+    volumes:
+      - /opt/docker/forgejo/server/db/:/var/lib/postgresql/
+    environment:
+      POSTGRES_DB: ${DB_BASE:-forgejo}
+      POSTGRES_USER: ${DB_USER:-forgejo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?database password required}
+    networks:
+      - database_only
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  service.docker-in-docker:
+    image: data.forgejo.org/oci/docker:dind@sha256:084e385b0c9b7ab35d5a46dfedd033721448c000dbec71adcf13da8a9e71baa8
+    container_name: docker-in-docker
+    volumes:
+      - /opt/docker/forgejo/docker_certs/:/certs/
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_HOST: docker-in-docker
+    networks:
+      - public_access
+      - service_only
+    healthcheck:
+      test: [ "CMD", "docker", "-H", "unix:///var/run/docker.sock", "info" ]
+      start_period: 30s
+      interval: 30s
+      retries: 3
+      timeout: 10s
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    hostname: docker # Must set hostname as TLS certificates are only valid for docker or localhost
+    # Required for Docker-in-Docker (DinD): Forgejo Actions runner connects via
+    # TLS-secured TCP socket (DOCKER_HOST=tcp://docker:2376, DOCKER_TLS_VERIFY=1).
+    privileged: true
+
+  service.forgejo:
+    image: data.forgejo.org/forgejo/forgejo:16.0.2-rootless@sha256:23ccc146e6dc2cd1f5c5435909baae64db873201717f1726490dae649283e6cd
+    container_name: forgejo
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/forgejo/server/data/:/var/lib/gitea/
+      - /opt/docker/forgejo/server/config/:/etc/gitea/
+    environment:
+      USER_UID: 65531
+      USER_GID: 65531
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: database.postgres:5432
+      FORGEJO__database__NAME: ${DB_BASE:-forgejo}
+      FORGEJO__database__USER: ${DB_USER:-forgejo}
+      FORGEJO__database__PASSWD: ${DB_PASSWORD}
+    env_file: .env
+    ports:
+      - '3000:3000'
+      # - '2222:2222'
+    networks:
+      - public_access
+      - service_only
+      - database_only
+    user: 65531:65531
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.runner-daemon:
+    image: data.forgejo.org/forgejo/runner:12.13.2@sha256:eb6e7bc21973382d261e6eb883dbd27b8cb56939d33a3bfd79a1352b7f9a33a0
+    container_name: forgejo-runner
+    depends_on:
+      service.docker-in-docker:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/forgejo/runner-data/:/data/
+      - /opt/docker/forgejo/docker_certs/:/certs/
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_CERT_PATH: /certs/client
+      DOCKER_TLS_VERIFY: "1"
+    networks:
+      - public_access
+      - service_only
+    command: >-
+      bash -c ' while : ; do test -w .runner && forgejo-runner --config config.yml daemon ; sleep 1 ; done '
+    user: 65530:65530
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+networks:
+  public_access:
+  service_only:
+    internal: true
+  database_only:
+    internal: true

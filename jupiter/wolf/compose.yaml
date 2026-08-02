@@ -1,0 +1,27 @@
+---
+services:
+  wolf:
+    image: ghcr.io/games-on-whales/wolf:stable@sha256:ff82c125c9b79b2e9443de2b0eaec40c904edb03291680d408cccd57c1d59c76
+    container_name: wolf
+    volumes:
+      - /opt/docker/wolf/:/opt/docker/wolf/
+      - /opt/docker/wolf/cfg/:/etc/wolf/cfg/
+      - /games/:/games/
+      - /tmp/sockets/:/tmp/sockets/
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /dev/:/dev/
+      - /mnt/udev/:/run/udev/
+    environment:
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/opt/docker/wolf
+    env_file: .env
+    network_mode: host
+    device_cgroup_rules:
+      - "c 13:* rmw"
+    devices:
+      - /dev/dri
+      - /dev/uinput
+      - /dev/uhid
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

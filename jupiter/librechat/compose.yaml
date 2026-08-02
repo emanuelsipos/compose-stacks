@@ -1,0 +1,100 @@
+---
+services:
+  api:
+    image: ghcr.io/danny-avila/librechat:v0.8.7@sha256:c5db3331b845e1f289f8d04c0c77936c4bbe372f76730a804abc1c37e44d23a9
+    container_name: LibreChat
+    depends_on:
+      - mongodb
+      - rag-api
+    volumes:
+      # - /opt/docker/librechat/.env:/app/.env
+      - /opt/docker/librechat/images/:/app/client/public/images/
+      - /opt/docker/librechat/uploads/:/app/uploads/
+      - /opt/docker/librechat/logs/:/app/api/logs/
+    environment:
+      - HOST=0.0.0.0
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - MEILI_HOST=http://meilisearch:7700
+      - RAG_PORT=${RAG_PORT:-8000}
+      - RAG_API_URL=http://rag-api:${RAG_PORT:-8000}
+    env_file: .env
+    ports:
+      - '${PORT}:${PORT}'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: 1000:1000
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  db-backup:
+    image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
+    container_name: LibreChat_db-backup
+    depends_on:
+      - mongodb
+      - vectordb
+    volumes:
+      - /opt/docker/librechat/backup/:/backup/
+    environment:
+      DB01_TYPE: mongo
+      DB01_HOST: mongodb
+      DB02_TYPE: pgsql
+      DB02_HOST: vectordb
+      DB02_NAME: ${POSTGRES_DB}
+      DB02_USER: ${POSTGRES_USER}
+      DB02_PASS: ${POSTGRES_PASSWORD}
+      CONTAINER_ENABLE_MONITORING: FALSE
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12.3@sha256:4acfcbbb9e089aa1aac838cfda3fba7f07aaaef044c23da8acbe0ab741400dac
+    container_name: LibreChat_meilisearch
+    volumes:
+      - /opt/docker/librechat/meili_data_v1.12/:/meili_data/
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    user: 1000:1000
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  mongodb:
+    image: mongo:8@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
+    container_name: LibreChat_mongodb
+    volumes:
+      - /opt/docker/librechat/data-node:/data/db
+    command: mongod --noauth
+    user: 1000:1000
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  rag-api:
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest@sha256:d6db3e38fb1afabcad6972d23d2cdc093e8a5b74797881e29e7599df93704985
+    container_name: LibreChat_rag-api
+    depends_on:
+      - vectordb
+    environment:
+      - DB_HOST=vectordb
+      - RAG_PORT=${RAG_PORT:-8000}
+    env_file: .env
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  vectordb:
+    image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
+    container_name: LibreChat_vectordb
+    volumes:
+      - /opt/docker/librechat/pgdata/:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

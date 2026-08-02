@@ -1,0 +1,14 @@
+---
+services:
+  adguardhome-sync:
+    image: ghcr.io/bakito/adguardhome-sync:v0.9.2@sha256:fb7224aeeab74d68990c3ecf51594a6f92428fcc93c7a162c3bc221e77a49025
+    container_name: adguardhome-sync
+    # volumes:
+    #   - /opt/adguardhome-sync/adguardhome-sync.yaml:/adguardhome-sync.yaml:ro
+    env_file: .env
+    ports:
+      - '8080:8080'
+    command: run --config /adguardhome-sync.yaml
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

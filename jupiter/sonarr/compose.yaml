@@ -1,0 +1,42 @@
+---
+x-sonarr-base: &sonarr-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: lscr.io/linuxserver/sonarr:4.0.19@sha256:24acea2956a0ccb11f103877d9f4f8576600fb34bff34820ed749c2256dab89f
+  env_file: .env
+  healthcheck:
+    test: [ "CMD-SHELL", "curl -fSs http://localhost:8989/ping || exit 1" ]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
+x-vol-data: &vol-data /mnt/data/:/data/
+
+services:
+  sonarr-anime:
+    container_name: sonarr-anime
+    volumes:
+      - *vol-data
+      - /opt/docker/sonarr-anime/:/config/
+    ports:
+      - '8989:8989'
+    <<: *sonarr-base
+
+  sonarr-tv:
+    container_name: sonarr-tv
+    volumes:
+      - *vol-data
+      - /opt/docker/sonarr-tv/:/config/
+    ports:
+      - '8990:8989'
+    <<: *sonarr-base
+
+  sonarr-tv-4k:
+    container_name: sonarr-tv-4k
+    volumes:
+      - *vol-data
+      - /opt/docker/sonarr-tv-4k/:/config/
+    ports:
+      - '8991:8989'
+    <<: *sonarr-base

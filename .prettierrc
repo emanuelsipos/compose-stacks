@@ -1,0 +1,10 @@
+{
+  "overrides": [
+    {
+      "files": ["**/compose.yml", "**/compose.yaml", "**/docker-compose.yml", "**/docker-compose.yaml"],
+      "options": {
+        "singleQuote": true
+      }
+    }
+  ]
+}

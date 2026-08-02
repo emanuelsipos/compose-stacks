@@ -1,0 +1,726 @@
+name: "Security Scan"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: "20 4 * * 1" # Weekly on Monday
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >
+          Dry run — scan everything but skip posting comments and opening PRs.
+          Useful for validating config changes without side-effects.
+        type: boolean
+        default: false
+      scanners:
+        description: >
+          Which scanners to run. Defaults to all. On push/schedule/PR this input
+          is ignored and all scanners always run.
+        type: choice
+        options:
+          - all
+          - kics
+          - checkov
+          - trivy
+        default: all
+      reopen_findings:
+        description: >
+          Reprocess dismissed suppression PRs (those closed without merging).
+          Pass 'all' to reprocess every dismissed finding currently in the scan
+          results, or a comma-separated list of similarity_id prefixes (minimum
+          8 chars, e.g. "fe37c69c,87a31c47"). Only findings that still appear in
+          the KICS scan output are affected — findings that no longer exist in
+          the codebase are ignored automatically. Leave blank for normal
+          behaviour.
+        type: string
+        default: ""
+      pr_limit:
+        description: >
+          Maximum number of suppression PRs to open in a single run (default:
+          20). Prevents runaway PR creation when many new findings appear at
+          once. Run the workflow again or increase the limit to process
+          remaining findings.
+        type: string
+        default: "20"
+
+# ── Convenience expressions used throughout ───────────────────────────────
+# is_pr    : true on pull_request only
+# is_push  : true on push + schedule (the "post to commit" triggers)
+# is_manual: true on workflow_dispatch only
+# post_ok  : true when it is safe to post comments / open PRs
+#            (not a PR, and not a dry run)
+# Each job re-evaluates these inline; GitHub does not support top-level vars
+# that reference github.* context, so they are inlined as needed.
+
+permissions: {}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 1: Misconfiguration scanning
+  #   - Checkov  → .github/workflows/ (best-in-class for Actions files)
+  #   - KICS     → compose.yaml files (best-in-class for Compose files)
+  #
+  # PR trigger:         scans changed files → Checks tab annotations
+  # push/schedule:      full scan           → sticky commit comment
+  # workflow_dispatch:  full scan           → sticky commit comment
+  #                     (dry_run=true skips the comment)
+  #                     (scanners=kics/checkov limits which tool runs)
+  # Blocks merge:       CRITICAL/HIGH findings
+  # ─────────────────────────────────────────────────────────────────────────
+  misconfig:
+    name: Misconfiguration Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Build the exclude_results list from .kics-exclude/ on origin/main.
+      # Reading from origin/main (not the checked-out branch) ensures PR scans
+      # always use the latest suppressions, even if the PR branch was created
+      # before a suppression PR was merged. Without this, a suppression merged
+      # to main after the PR branch was cut would be invisible to PR scans,
+      # causing false-positive check failures on already-suppressed findings.
+      - name: Build KICS exclude list
+        id: kics-exclude
+        run: |
+          # Fetch only the .kics-exclude/ tree from origin/main so we always
+          # have the current set of suppressions regardless of branch age.
+          git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
+          EXCLUDE_DIR=$(git show origin/main:.kics-exclude 2>/dev/null || echo "")
+          if [ -n "$EXCLUDE_DIR" ]; then
+            LIST=""
+            while IFS= read -r f; do
+              sim=$(git show "origin/main:$f" 2>/dev/null | head -1 | tr -d '[:space:]')
+              [ -n "$sim" ] && LIST="${LIST:+$LIST,}$sim"
+            done < <(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null)
+            echo "list=$LIST" >> "$GITHUB_OUTPUT"
+            COUNT=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null | wc -l)
+            echo "  $COUNT exclusion(s) loaded from origin/main"
+          else
+            echo "list=" >> "$GITHUB_OUTPUT"
+            echo "  no .kics-exclude/ files found on origin/main"
+          fi
+
+      # ── Resolve which files changed (PR only) ──────────────────────────
+      - name: Get changed compose files
+        id: changed
+        if: github.event_name == 'pull_request'
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
+        with:
+          files: |
+            **/compose.yaml
+            **/compose.yml
+
+      - name: Get changed workflow files
+        id: workflow-changed
+        if: github.event_name == 'pull_request'
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
+        with:
+          files: |
+            .github/workflows/**
+
+      # Build the KICS scan path:
+      #   PR + compose files changed → space-separated list of changed files
+      #   PR + no compose changes    → skip KICS entirely (flag via output)
+      #   push/schedule/dispatch     → scan everything
+      - name: Resolve KICS scan path
+        id: kics-path
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            COMPOSE=$(echo "${{ steps.changed.outputs.all_changed_files }}" \
+              | tr ' ' '\n' \
+              | grep -E 'compose\.ya?ml$' \
+              | tr '\n' ',' \
+              | sed 's/,$//')
+            if [ -z "$COMPOSE" ]; then
+              echo "skip=true"  >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "path=$COMPOSE" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "path=."     >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Checkov ──────────────────────────────────────────────────────────
+      # On workflow_dispatch, the `scanners` input gates whether this runs.
+      # On all other triggers it always runs (subject to the PR diff guard).
+      - name: Run Checkov
+        id: checkov
+        if: |
+          (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.scanners == 'all' ||
+            inputs.scanners == 'checkov'
+          ) && (
+            github.event_name != 'pull_request' ||
+            steps.workflow-changed.outputs.any_changed == 'true'
+          )
+        uses: bridgecrewio/checkov-action@9b70310bcd306d11740313070b940167d6b23085 # v12.3115.0
+        continue-on-error: true
+        with:
+          directory: .github/workflows
+          config_file: .checkov.yaml
+          quiet: true
+          output_format: cli,json
+          output_file_path: checkov-results
+
+      # ── KICS ─────────────────────────────────────────────────────────────
+      # Run KICS directly via docker instead of the kics-github-action wrapper.
+      # The action builds a 2-stage Docker image on every invocation
+      # (FROM kics + FROM wolfi-base), adding 15-30 s of overhead with no
+      # benefit. Running the published image directly is functionally identical.
+      # Authenticate with Docker Hub before pulling KICS.
+      # Unauthenticated pulls are rate-limited to 100/6h per IP on self-hosted
+      # runners. A rate-limit hit produces exit 125, which '; true' swallows,
+      # leaving no results.json and a false-green scan.
+      # Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets.
+      - name: Docker Hub login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
+            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Run KICS
+        id: kics
+        if: |
+          always() &&
+          steps.kics-path.outputs.skip != 'true' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.scanners == 'all' ||
+            inputs.scanners == 'kics'
+          )
+        run: |
+          EXCLUDE_ARGS=""
+          if [ -n "${{ steps.kics-exclude.outputs.list }}" ]; then
+            EXCLUDE_ARGS="--exclude-results ${{ steps.kics-exclude.outputs.list }}"
+          fi
+          mkdir -p kics-results
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/scan" \
+            -w /scan \
+            checkmarx/kics:v2.1.20 scan \
+            -p "${{ steps.kics-path.outputs.path }}" \
+            --config kics-config.yaml \
+            --report-formats json \
+            -o kics-results \
+            -e .git,.cache,.github,.archive \
+            --ignore-on-exit all \
+            $EXCLUDE_ARGS \
+          ; true  # exit 0 — block step evaluates findings separately
+
+      # ── PR: Checks tab annotations ────────────────────────────────────────
+      - name: Setup reviewdog
+        if: always() && github.event_name == 'pull_request'
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
+
+      # Convert KICS JSON → rdjsonl and post as Checks tab annotations.
+      # Severity is embedded in code.value so the colored line reads:
+      #   [KICS] file.yaml#LN  <[HIGH] Rule Name>(https://docs.kics.io/...)
+      - name: Post KICS annotations
+        if: always() && github.event_name == 'pull_request' &&
+          steps.kics-path.outputs.skip != 'true'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f kics-results/results.json ]; then exit 0; fi
+          # Apply the same name-based suppression filter as the block step.
+          SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null \
+            | xargs -I{} basename {} 2>/dev/null || true)
+          jq -c '
+            .queries[] | . as $q |
+            .files[] | {
+              message: (
+                $q.query_name + ": " + $q.description + "\n\n" +
+                "Docs: https://docs.kics.io/latest/queries/dockercompose-queries/" + $q.query_id + "/\n" +
+                "Suppression: merge the auto-generated PR in the security/kics-* branch for this finding, or trigger the Generate Fix PRs workflow. Do NOT use kics-scan ignore-line -- inline suppression is broken in KICS v2.1.x and has no effect."
+              ),
+              location: {
+                path: .file_name,
+                range: { start: { line: .line, column: 1 } }
+              },
+              severity: (
+                if $q.severity == "CRITICAL" or $q.severity == "HIGH"
+                then "ERROR" else "WARNING" end
+              ),
+              code: {
+                value: ("[" + $q.severity + "] " + $q.query_name)
+              },
+              source: { name: "KICS" },
+              _sev:   $q.severity,
+              _qname: $q.query_name,
+              _fname: .file_name
+            }
+          ' kics-results/results.json | \
+          while IFS= read -r line; do
+            SEV=$(echo "$line"   | jq -r '._sev')
+            QNAME=$(echo "$line" | jq -r '._qname')
+            FNAME=$(echo "$line" | jq -r '._fname')
+            Q_SLUG=$(echo "$QNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
+            F_SLUG=$(echo "$FNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
+            PREFIX="${SEV}_${Q_SLUG}_${F_SLUG}_"
+            # Only emit annotation if not name-suppressed
+            if [ "$SEV" != "HIGH" ] && [ "$SEV" != "CRITICAL" ]; then
+              echo "$line" | jq -c 'del(._sev, ._qname, ._fname)'
+            elif ! echo "$SUPPRESSED" | grep -q "^${PREFIX}"; then
+              echo "$line" | jq -c 'del(._sev, ._qname, ._fname)'
+            fi
+          done | \
+          reviewdog \
+            -f=rdjsonl \
+            -name="KICS" \
+            -reporter=github-pr-check \
+            -filter-mode=file \
+            -fail-on-error=false
+
+      - name: Post Checkov annotations
+        if: always() && github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f checkov-results/results_json.json ]; then exit 0; fi
+          jq -c '
+            (if type == "array" then .[] else . end) |
+            .results.failed_checks[]? | {
+              message: (
+                .check_id + ": " + .check.name + "\n\n" +
+                "To suppress: # checkov:skip=" + .check_id + ":<your justification>"
+              ),
+              location: {
+                path: .repo_file_path,
+                range: {
+                  start: { line: (.file_line_range[0] // 1), column: 1 }
+                }
+              },
+              severity: "WARNING",
+              source: { name: "Checkov" }
+            }
+          ' checkov-results/results_json.json | \
+          reviewdog \
+            -f=rdjsonl \
+            -name="Checkov" \
+            -reporter=github-pr-check \
+            -filter-mode=nofilter \
+            -fail-on-error=false
+
+      # ── push/schedule/dispatch: sticky commit comment ─────────────────────
+      # Skipped when dry_run=true so no side-effects are left behind.
+      - name: Format summary comment
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          # KICS
+          if [ -f kics-results/results.json ]; then
+            KICS_TOTAL=$(jq '[.queries[].files[]] | length' kics-results/results.json)
+            KICS_HIGH=$(jq '[.queries[] | select(.severity=="HIGH" or .severity=="CRITICAL") | .files[]] | length' kics-results/results.json)
+            KICS_BODY=$(jq -r '
+              .queries[] | select(.files | length > 0) |
+              "[\(.severity)] \(.query_name)\n" +
+              (.files[] | "  → \(.file_name):\(.line)\n")
+            ' kics-results/results.json 2>/dev/null || echo "Could not parse results.")
+          else
+            KICS_TOTAL=0; KICS_HIGH=0; KICS_BODY="No results."
+          fi
+
+          # Checkov
+          if [ -f checkov-results/results_cli.txt ]; then
+            CHECKOV_BODY=$(cat checkov-results/results_cli.txt)
+          else
+            CHECKOV_BODY="No results."
+          fi
+
+          # Append a banner when this was a manual dry-run
+          DRY_NOTE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_NOTE="> ⚠️ **Dry run** — this comment was posted for visibility only. No PRs were opened."$'\n\n'
+          fi
+
+          # Append which scanners were selected (workflow_dispatch only)
+          SCANNER_NOTE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.scanners }}" != "all" ]; then
+            SCANNER_NOTE="> ℹ️ **Partial scan** — only \`${{ inputs.scanners }}\` ran this time."$'\n\n'
+          fi
+
+          cat <<COMMENT > misconfig-summary.md
+          ## 🔍 Misconfiguration Scan — $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          ${DRY_NOTE}${SCANNER_NOTE}**KICS:** ${KICS_TOTAL} finding(s) — ${KICS_HIGH} HIGH/CRITICAL
+
+          <details><summary>KICS findings</summary>
+
+          \`\`\`
+          ${KICS_BODY}
+          \`\`\`
+          </details>
+
+          <details><summary>Checkov findings</summary>
+
+          \`\`\`
+          ${CHECKOV_BODY}
+          \`\`\`
+          </details>
+          COMMENT
+
+      - name: Post misconfig summary
+        if: |
+          always() &&
+          github.event_name != 'pull_request' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.dry_run == false
+          )
+        run: cat misconfig-summary.md >> $GITHUB_STEP_SUMMARY
+
+      # ── Block on CRITICAL/HIGH ─────────────────────────────────────────
+      # Always runs regardless of trigger or dry_run — findings are findings.
+      # If KICS failed without producing results (e.g. Docker pull rate limit
+      # hit after '; true' swallowed exit 125), treat it as a hard failure.
+      #
+      # Secondary suppression filter: --exclude-results filters by sim_id, but
+      # sim_ids drift when a file is modified in a PR (KICS recomputes the hash
+      # from changed content). As a fallback, filter out any HIGH/CRITICAL finding
+      # whose (severity, query_name, file_name) combination matches a .kics-exclude/
+      # filename on origin/main -- i.e., the finding was previously suppressed for
+      # that file regardless of which exact line or version triggered it.
+      - name: Block on CRITICAL/HIGH findings
+        if: always()
+        run: |
+          BLOCK=0
+
+          if [ "${{ steps.kics.outcome }}" = "failure" ] && [ ! -f kics-results/results.json ]; then
+            echo "::error::KICS scan failed to produce results. Check for docker pull errors above."
+            BLOCK=1
+          elif [ -f kics-results/results.json ]; then
+            # Build suppression index from .kics-exclude/ filenames on origin/main.
+            # Each filename encodes: {SEVERITY}_{QuerySlug}_{FileSlug}_L{line}_{sim8}
+            # We match on the {SEVERITY}_{QuerySlug}_{FileSlug}_ prefix, which is
+            # stable even when line numbers or sim_ids change due to file edits.
+            SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null \
+              | xargs -I{} basename {} 2>/dev/null || true)
+
+            COUNT=0
+            while IFS= read -r finding; do
+              SEV=$(echo "$finding"   | jq -r '.severity')
+              QNAME=$(echo "$finding" | jq -r '.query_name')
+              FNAME=$(echo "$finding" | jq -r '.file_name')
+              # Derive slug prefix matching exclude_filename() in kics-pr-manager.py
+              Q_SLUG=$(echo "$QNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
+              F_SLUG=$(echo "$FNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
+              PREFIX="${SEV}_${Q_SLUG}_${F_SLUG}_"
+              # Check if any .kics-exclude filename starts with this prefix
+              if echo "$SUPPRESSED" | grep -q "^${PREFIX}"; then
+                echo "  suppressed by name match: ${SEV} ${QNAME} in ${FNAME}"
+              else
+                echo "  unsuppressed finding: ${SEV} ${QNAME} in ${FNAME}"
+                COUNT=$((COUNT + 1))
+              fi
+            done < <(jq -c '.queries[] | select(.severity=="CRITICAL" or .severity=="HIGH") | . as $q | .files[] | {severity: $q.severity, query_name: $q.query_name, file_name: .file_name}' kics-results/results.json)
+
+            if [ "$COUNT" -gt 0 ]; then
+              echo "::error::KICS: $COUNT new CRITICAL/HIGH finding(s) -- see Checks tab"
+              BLOCK=1
+            fi
+          fi
+
+          if [ "${{ steps.checkov.outcome }}" = "failure" ]; then
+            echo "::error::Checkov: failed checks found -- see Checks tab"
+            BLOCK=1
+          fi
+
+          exit $BLOCK
+
+  vulnerabilities:
+    name: Vulnerability Scan
+    runs-on: ubuntu-latest
+    # PRs are excluded: Trivy has no per-line context for annotations, and
+    # every step was already guarded with != 'pull_request', making the entire
+    # job a no-op on PRs — it checked out the repo and did nothing.
+    # Vuln coverage on PRs comes from the weekly schedule catching any new
+    # CVE in dependencies, and from the push scan that runs after merge.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Run on push, schedule, and workflow_dispatch (never on PR — no file:line
+      # context makes annotations low-value; the full scan runs on merge).
+      # On workflow_dispatch, the `scanners` input gates execution.
+      - name: Run Trivy
+        id: trivy
+        if: |
+          github.event_name != 'pull_request' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.scanners == 'all' ||
+            inputs.scanners == 'trivy'
+          )
+        env:
+          # Keep the Trivy DB outside the workspace so it survives across runs.
+          # The workspace is re-created on every checkout; /home/runner/.cache
+          # persists unconditionally on self-hosted runners.
+          # The old default (.cache/trivy inside the workspace) caused a 90 MB
+          # re-download on every run because the workspace was wiped each time.
+          TRIVY_CACHE_DIR: /home/runner/.cache/trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          ignore-unfixed: true
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH
+          skip-dirs: .git,.cache
+          exit-code: 0
+          # cache-dir must be set in with: as well as env: — the action's
+          # internal setup-trivy step reads the input to key actions/cache,
+          # and ignores TRIVY_CACHE_DIR for that purpose.
+          cache-dir: /home/runner/.cache/trivy
+
+      # reviewdog is only needed on PRs, but Trivy does not run on PRs,
+      # so this block is intentionally a no-op and kept only for the case
+      # where a future change re-enables PR scanning.
+      - name: Setup reviewdog
+        if: always() && github.event_name == 'pull_request' && steps.trivy.conclusion !=
+          'skipped'
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
+
+      - name: Post Trivy findings
+        if: always() && github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f trivy-results.json ]; then exit 0; fi
+          jq -c '
+            .Results[]? | . as $r |
+            .Vulnerabilities[]? | {
+              message: (
+                .VulnerabilityID + " in " + .PkgName +
+                " (" + .InstalledVersion + ")\n" +
+                (.Title // "No title") + "\n" +
+                "Fixed in: " + (.FixedVersion // "no fix available") + "\n" +
+                (.PrimaryURL // "")
+              ),
+              location: {
+                path: $r.Target,
+                range: { start: { line: 1, column: 1 } }
+              },
+              severity: (
+                if .Severity == "CRITICAL" or .Severity == "HIGH"
+                then "ERROR" else "WARNING" end
+              ),
+              source: { name: "Trivy" }
+            }
+          ' trivy-results.json | \
+          reviewdog \
+            -f=rdjsonl \
+            -name="Trivy" \
+            -reporter=github-pr-check \
+            -fail-on-error=false
+
+      - name: Format Trivy summary
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          trivy fs . \
+            --scanners vuln \
+            --ignore-unfixed \
+            --severity CRITICAL,HIGH \
+            --skip-dirs .git,.cache \
+            --format table \
+            --output trivy-table.txt \
+            2>/dev/null || true
+
+          TRIVY_BODY=$(cat trivy-table.txt 2>/dev/null || echo "No results.")
+
+          DRY_NOTE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_NOTE="> ⚠️ **Dry run** — this comment was posted for visibility only. No PRs were opened."$'\n\n'
+          fi
+
+          cat <<COMMENT > vuln-summary.md
+          ## 🛡️ Vulnerability Scan — $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          ${DRY_NOTE}
+          <details><summary>Trivy CVE findings</summary>
+
+          \`\`\`
+          ${TRIVY_BODY}
+          \`\`\`
+          </details>
+          COMMENT
+
+      - name: Post vulnerability summary
+        if: |
+          always() &&
+          github.event_name != 'pull_request' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.dry_run == false
+          )
+        run: cat vuln-summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Block on CRITICAL/HIGH CVEs
+        if: always()
+        run: |
+          if [ ! -f trivy-results.json ]; then exit 0; fi
+          COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH")] | length' trivy-results.json)
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::error::Trivy: $COUNT CRITICAL/HIGH CVE(s) found — see Checks tab"
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 3: Per-finding suppression PRs
+  #
+  # Runs on push to main, schedule, and workflow_dispatch.
+  # dry_run=true → skips the PR-opening step (scan still runs so you can
+  #                inspect what *would* have been opened).
+  #
+  # Suppression strategy:
+  #   key: value lines → inline # kics-scan ignore-line in the compose file
+  #   list items (- …) → exclude-results entry in kics-config.yaml
+  # ─────────────────────────────────────────────────────────────────────────
+  fix-prs:
+    name: Generate Fix PRs
+    runs-on: ubuntu-latest
+    # push is excluded: every merge to main previously triggered a full KICS
+    # scan + PR manager run. Since most findings are already dismissed or have
+    # an open PR, push runs were almost always no-ops and caused unnecessary
+    # load. schedule (weekly) provides the safety net; workflow_dispatch
+    # (with reopen_findings input) covers any on-demand needs.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Build the exclude_results list from committed .kics-exclude/ files.
+      # Each file contains one similarity_id written by a previous merged PR.
+      # The list is passed directly to the action's exclude_results input —
+      # replacing the old inject-to-yaml approach which was fragile and required
+      # .kics-exclude/ to be non-empty or the yaml would be malformed.
+      # Build the exclude_results list from .kics-exclude/ on origin/main.
+      # fix-prs always runs on schedule/dispatch from main, so origin/main
+      # equals HEAD here -- but using the same approach as misconfig keeps
+      # the two jobs consistent.
+      - name: Build KICS exclude list
+        id: kics-exclude
+        run: |
+          git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
+          EXCLUDE_DIR=$(git show origin/main:.kics-exclude 2>/dev/null || echo "")
+          if [ -n "$EXCLUDE_DIR" ]; then
+            LIST=""
+            while IFS= read -r f; do
+              sim=$(git show "origin/main:$f" 2>/dev/null | head -1 | tr -d '[:space:]')
+              [ -n "$sim" ] && LIST="${LIST:+$LIST,}$sim"
+            done < <(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null)
+            echo "list=$LIST" >> "$GITHUB_OUTPUT"
+            COUNT=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null | wc -l)
+            echo "  $COUNT exclusion(s) loaded from origin/main"
+          else
+            echo "list=" >> "$GITHUB_OUTPUT"
+            echo "  no .kics-exclude/ files found on origin/main"
+          fi
+      - name: Docker Hub login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
+            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # Full scan — not scoped to changed files; catches anything on main.
+      # --exclude-severities medium,low,info — only open PRs for HIGH/CRITICAL.
+      # Runs KICS directly via docker (no wrapper image build overhead).
+      - name: Run KICS (full scan)
+        run: |
+          EXCLUDE_ARGS=""
+          if [ -n "${{ steps.kics-exclude.outputs.list }}" ]; then
+            EXCLUDE_ARGS="--exclude-results ${{ steps.kics-exclude.outputs.list }}"
+          fi
+          mkdir -p kics-results
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/scan" \
+            -w /scan \
+            checkmarx/kics:v2.1.20 scan \
+            -p . \
+            --config kics-config.yaml \
+            --report-formats json \
+            -o kics-results \
+            -e .git,.cache,.github,.archive \
+            --exclude-severities medium,low,info \
+            --ignore-on-exit all \
+            $EXCLUDE_ARGS \
+          ; true  # always exit 0 — PR manager evaluates findings
+
+      # One PR per finding. Closed-without-merge → permanently dismissed
+      # unless --reopen is set (via the reopen_findings dispatch input).
+      # --pr-limit caps PRs opened per run (default 20, overridable via input).
+      # Skipped entirely on dry_run so no branches or PRs are created.
+      - name: Open per-finding suppression PRs
+        if: inputs.dry_run == false || github.event_name != 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REOPEN_ARG=""
+          if [ -n "${{ inputs.reopen_findings }}" ]; then
+            REOPEN_ARG="--reopen ${{ inputs.reopen_findings }}"
+          fi
+          LIMIT="${{ inputs.pr_limit }}"
+          LIMIT_ARG="--pr-limit ${LIMIT:-20}"
+          python3 .github/scripts/kics-pr-manager.py \
+            --kics  kics-results/results.json \
+            --repo  ${{ github.repository }} \
+            --token "$GITHUB_TOKEN" \
+            --base  main \
+            $LIMIT_ARG \
+            $REOPEN_ARG
+
+      # Log a notice when dry_run suppressed PR creation so the run summary
+      # makes the skipped action obvious.
+      - name: Dry-run notice
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        run: |
+          echo "::notice::Dry run — KICS scan completed but no suppression PRs were opened."
+          echo "          Re-run with dry_run=false to open PRs for the findings above."
+
+      - name: Clean up scan artifacts
+        if: always()
+        run: sudo rm -rf kics-results/
+
+  notify:
+    name: Notify
+    needs: [misconfig, vulnerabilities]
+    if: |
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Ping healthchecks
+        env:
+          HC_URL: ${{ secrets.HC_SECURITY_SCAN }}
+        run: |
+          [ -z "$HC_URL" ] && exit 0
+          if [ "${{ needs.misconfig.result }}" = "success" ] && \
+             [ "${{ needs.vulnerabilities.result }}" = "success" ]; then
+            curl -fsS --retry 3 "$HC_URL" > /dev/null || true
+          else
+            curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null || true
+          fi

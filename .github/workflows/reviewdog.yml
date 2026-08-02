@@ -1,0 +1,19 @@
+name: reviewdog
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dclint:
+    name: runner / dclint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: dclint
+        uses: docker-compose-linter/dclint-github-action/reviewdog-action@18659f6a7956706cb67cf9c1ad5e55f4352cbc17 # v1.6.0
+        with:
+          reporter: github-pr-review # Default is `github-pr-check`
+          dclint_flags: .
