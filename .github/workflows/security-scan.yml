@@ -530,6 +530,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test security scan helpers
+        run: python3 .github/scripts/test_security_scan.py
+
       - name: Build image scan matrix
         id: plan
         env:
@@ -539,53 +542,12 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SELECTED_SCANNERS: ${{ inputs.scanners }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && \
-             [ "$SELECTED_SCANNERS" != "all" ] && \
-             [ "$SELECTED_SCANNERS" != "trivy" ]; then
-            FILES=""
-          elif [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            FILES=$(find . -type f \( -name compose.yaml -o -name compose.yml \) \
-              -not -path './.git/*' -print)
-          elif [ "$EVENT_NAME" = "pull_request" ]; then
-            FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- \
-              '**/compose.yaml' '**/compose.yml')
-          elif [ -n "$BEFORE_SHA" ] && \
-               [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            FILES=$(git diff --name-only --diff-filter=ACMR "$BEFORE_SHA" HEAD -- \
-              '**/compose.yaml' '**/compose.yml')
-          else
-            FILES=$(find . -type f \( -name compose.yaml -o -name compose.yml \) \
-              -not -path './.git/*' -print)
-          fi
-
-          IMAGES=""
-          if [ -n "$FILES" ]; then
-            IMAGES=$(while IFS= read -r file; do
-              [ -f "$file" ] || continue
-              awk '$1 == "image:" {print $2}' "$file" | tr -d "\"'"
-            done <<< "$FILES" | sort -u)
-          fi
-
-          COUNT=$(sed '/^$/d' <<< "$IMAGES" | wc -l)
-          mkdir -p image-buckets
-          while IFS= read -r image; do
-            [ -n "$image" ] || continue
-            HASH=$(printf '%s' "$image" | sha256sum | cut -c1-8)
-            BUCKET=$(printf '%02d' "$((16#$HASH % 16))")
-            echo "$image" >> "image-buckets/$BUCKET"
-          done <<< "$IMAGES"
-
-          shopt -s nullglob
-          MATRIX=$(for file in image-buckets/*; do
-            printf '%s\t%s\n' "$(basename "$file")" "$(sort -u "$file" | paste -sd' ' -)"
-          done | jq -Rsc '
-            split("\n") |
-            map(select(length > 0) | split("\t") | {id: .[0], images: .[1]}) |
-            {include: .}
-          ')
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Planned $COUNT image(s) across $(jq '.include | length' <<< "$MATRIX") job(s)."
+          python3 .github/scripts/security_scan.py plan \
+            --event "$EVENT_NAME" \
+            --before "$BEFORE_SHA" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --scanners "${SELECTED_SCANNERS:-all}"
 
   image-vulnerabilities:
     name: Container Image Scan (${{ matrix.id }})
@@ -601,6 +563,9 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.image-scan-plan.outputs.matrix) }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
@@ -643,14 +608,9 @@ jobs:
       - name: Combine image scan results
         if: always() && hashFiles('trivy-image-results/image-*.sarif') != ''
         run: |
-          jq -s '
-            {
-              version: "2.1.0",
-              "$schema": .[0]."$schema",
-              runs: [.[].runs[]]
-            }
-          ' trivy-image-results/image-*.sarif \
-            > trivy-image-results/combined.sarif
+          python3 .github/scripts/security_scan.py combine \
+            --pattern 'trivy-image-results/image-*.sarif' \
+            --output trivy-image-results/combined.sarif
 
       - name: Upload image results to GitHub code scanning
         if: always() && hashFiles('trivy-image-results/combined.sarif') != ''
