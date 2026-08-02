@@ -63,9 +63,9 @@ jobs:
   #   - Checkov  → .github/workflows/ (best-in-class for Actions files)
   #   - KICS     → compose.yaml files (best-in-class for Compose files)
   #
-  # PR trigger:         scans changed files → Checks tab annotations
-  # push/schedule:      full scan           → sticky commit comment
-  # workflow_dispatch:  full scan           → sticky commit comment
+  # PR trigger:         scans changed files → GitHub code scanning
+  # push/schedule:      full scan           → GitHub code scanning + summary
+  # workflow_dispatch:  full scan           → GitHub code scanning + summary
   #                     (dry_run=true skips the comment)
   #                     (scanners=kics/checkov limits which tool runs)
   # Blocks merge:       CRITICAL/HIGH findings
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,8 +171,15 @@ jobs:
           directory: .github/workflows
           config_file: .checkov.yaml
           quiet: true
-          output_format: cli,json
-          output_file_path: checkov-results
+          output_format: cli,json,sarif
+          output_file_path: checkov-results/results_cli.txt,checkov-results/results_json.json,checkov-results/results_sarif.sarif
+
+      - name: Upload Checkov results to GitHub code scanning
+        if: always() && hashFiles('checkov-results/results_sarif.sarif') != ''
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        with:
+          sarif_file: checkov-results/results_sarif.sarif
+          category: checkov-github-actions
 
       # ── KICS ─────────────────────────────────────────────────────────────
       # Run KICS directly via docker instead of the kics-github-action wrapper.
@@ -215,106 +222,54 @@ jobs:
             checkmarx/kics:v2.1.20 scan \
             -p "${{ steps.kics-path.outputs.path }}" \
             --config kics-config.yaml \
-            --report-formats json \
+            --report-formats json,sarif \
             -o kics-results \
             -e .git,.cache,.github,.archive \
             --ignore-on-exit all \
             $EXCLUDE_ARGS \
           ; true  # exit 0 — block step evaluates findings separately
 
-      # ── PR: Checks tab annotations ────────────────────────────────────────
-      - name: Setup reviewdog
-        if: always() && github.event_name == 'pull_request'
-        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
-
-      # Convert KICS JSON → rdjsonl and post as Checks tab annotations.
-      # Severity is embedded in code.value so the colored line reads:
-      #   [KICS] file.yaml#LN  <[HIGH] Rule Name>(https://docs.kics.io/...)
-      - name: Post KICS annotations
-        if: always() && github.event_name == 'pull_request' &&
-          steps.kics-path.outputs.skip != 'true'
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # KICS similarity IDs can change when a finding moves. Apply the same
+      # stable rule-and-file suppression fallback used by the blocking step
+      # before publishing results to GitHub code scanning.
+      - name: Filter suppressed KICS results from SARIF
+        if: always() && hashFiles('kics-results/results.sarif') != ''
         run: |
-          if [ ! -f kics-results/results.json ]; then exit 0; fi
-          # Apply the same name-based suppression filter as the block step.
-          SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null \
+          SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ \
             | xargs -I{} basename {} 2>/dev/null || true)
-          jq -c '
-            .queries[] | . as $q |
-            .files[] | {
-              message: (
-                $q.query_name + ": " + $q.description + "\n\n" +
-                "Docs: https://docs.kics.io/latest/queries/dockercompose-queries/" + $q.query_id + "/\n" +
-                "Suppression: merge the auto-generated PR in the security/kics-* branch for this finding, or trigger the Generate Fix PRs workflow. Do NOT use kics-scan ignore-line -- inline suppression is broken in KICS v2.1.x and has no effect."
-              ),
-              location: {
-                path: .file_name,
-                range: { start: { line: .line, column: 1 } }
-              },
-              severity: (
-                if $q.severity == "CRITICAL" or $q.severity == "HIGH"
-                then "ERROR" else "WARNING" end
-              ),
-              code: {
-                value: ("[" + $q.severity + "] " + $q.query_name)
-              },
-              source: { name: "KICS" },
-              _sev:   $q.severity,
-              _qname: $q.query_name,
-              _fname: .file_name
-            }
-          ' kics-results/results.json | \
-          while IFS= read -r line; do
-            SEV=$(echo "$line"   | jq -r '._sev')
-            QNAME=$(echo "$line" | jq -r '._qname')
-            FNAME=$(echo "$line" | jq -r '._fname')
-            Q_SLUG=$(echo "$QNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
-            F_SLUG=$(echo "$FNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
-            PREFIX="${SEV}_${Q_SLUG}_${F_SLUG}_"
-            # Only emit annotation if not name-suppressed
-            if [ "$SEV" != "HIGH" ] && [ "$SEV" != "CRITICAL" ]; then
-              echo "$line" | jq -c 'del(._sev, ._qname, ._fname)'
-            elif ! echo "$SUPPRESSED" | grep -q "^${PREFIX}"; then
-              echo "$line" | jq -c 'del(._sev, ._qname, ._fname)'
-            fi
-          done | \
-          reviewdog \
-            -f=rdjsonl \
-            -name="KICS" \
-            -reporter=github-pr-check \
-            -filter-mode=file \
-            -fail-on-error=false
 
-      - name: Post Checkov annotations
-        if: always() && github.event_name == 'pull_request'
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ ! -f checkov-results/results_json.json ]; then exit 0; fi
-          jq -c '
-            (if type == "array" then .[] else . end) |
-            .results.failed_checks[]? | {
-              message: (
-                .check_id + ": " + .check.name + "\n\n" +
-                "To suppress: # checkov:skip=" + .check_id + ":<your justification>"
-              ),
-              location: {
-                path: .repo_file_path,
-                range: {
-                  start: { line: (.file_line_range[0] // 1), column: 1 }
-                }
-              },
-              severity: "WARNING",
-              source: { name: "Checkov" }
-            }
-          ' checkov-results/results_json.json | \
-          reviewdog \
-            -f=rdjsonl \
-            -name="Checkov" \
-            -reporter=github-pr-check \
-            -filter-mode=nofilter \
-            -fail-on-error=false
+          jq --arg suppressed "$SUPPRESSED" '
+            def slug:
+              gsub("[/ ]"; "-") |
+              gsub("[^A-Za-z0-9._-]"; "") |
+              .[0:60];
+
+            .runs |= map(
+              .tool.driver.rules as $rules |
+              .results |= [
+                .[] |
+                . as $finding |
+                (first($rules[] | select(.id == $finding.ruleId)) // {}) as $rule |
+                ($finding.locations[0].physicalLocation.artifactLocation.uri // "") as $path |
+                (($rule.name // $finding.ruleId) | slug) as $query_slug |
+                ($path | slug) as $file_slug |
+                (($rule.defaultConfiguration.level // "warning") == "error") as $blocking |
+                ("HIGH_" + $query_slug + "_" + $file_slug + "_") as $high_prefix |
+                ("CRITICAL_" + $query_slug + "_" + $file_slug + "_") as $critical_prefix |
+                select($blocking) |
+                select(($suppressed | split("\n") | any(
+                  startswith($high_prefix) or startswith($critical_prefix)
+                )) | not)
+              ]
+            )
+          ' kics-results/results.sarif > kics-results/results.filtered.sarif
+
+      - name: Upload KICS results to GitHub code scanning
+        if: always() && hashFiles('kics-results/results.filtered.sarif') != ''
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        with:
+          sarif_file: kics-results/results.filtered.sarif
+          category: kics-compose
 
       # ── push/schedule/dispatch: sticky commit comment ─────────────────────
       # Skipped when dry_run=true so no side-effects are left behind.
@@ -451,7 +406,7 @@ jobs:
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
-      checks: write
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -492,46 +447,20 @@ jobs:
           # and ignores TRIVY_CACHE_DIR for that purpose.
           cache-dir: /home/runner/.cache/trivy
 
-      # reviewdog is only needed on PRs, but Trivy does not run on PRs,
-      # so this block is intentionally a no-op and kept only for the case
-      # where a future change re-enables PR scanning.
-      - name: Setup reviewdog
-        if: always() && github.event_name == 'pull_request' && steps.trivy.conclusion !=
-          'skipped'
-        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
-
-      - name: Post Trivy findings
-        if: always() && github.event_name == 'pull_request'
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Convert Trivy results to SARIF
+        if: always() && hashFiles('trivy-results.json') != ''
         run: |
-          if [ ! -f trivy-results.json ]; then exit 0; fi
-          jq -c '
-            .Results[]? | . as $r |
-            .Vulnerabilities[]? | {
-              message: (
-                .VulnerabilityID + " in " + .PkgName +
-                " (" + .InstalledVersion + ")\n" +
-                (.Title // "No title") + "\n" +
-                "Fixed in: " + (.FixedVersion // "no fix available") + "\n" +
-                (.PrimaryURL // "")
-              ),
-              location: {
-                path: $r.Target,
-                range: { start: { line: 1, column: 1 } }
-              },
-              severity: (
-                if .Severity == "CRITICAL" or .Severity == "HIGH"
-                then "ERROR" else "WARNING" end
-              ),
-              source: { name: "Trivy" }
-            }
-          ' trivy-results.json | \
-          reviewdog \
-            -f=rdjsonl \
-            -name="Trivy" \
-            -reporter=github-pr-check \
-            -fail-on-error=false
+          trivy convert \
+            --format sarif \
+            --output trivy-results.sarif \
+            trivy-results.json
+
+      - name: Upload Trivy results to GitHub code scanning
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-filesystem
 
       - name: Format Trivy summary
         if: always() && github.event_name != 'pull_request'

@@ -1,16 +1,36 @@
 name: Docker Compose Linting
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   schedule:
     - cron: "0 0 * * *" # Run daily at midnight UTC
-  # pull_request:
   workflow_dispatch:
 jobs:
-  lint-compose:
+  check-compose:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Compose files
+        uses: docker-compose-linter/dclint-github-action@18659f6a7956706cb67cf9c1ad5e55f4352cbc17 # v1.6.0
+        with:
+          path: .
+          recursive: true
+          formatter: github
+          max-warnings: 0
+
+  fix-compose:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,41 +47,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install dclint
-        run: npm install --g dclint
+      - name: Fix Compose files
+        uses: docker-compose-linter/dclint-github-action@18659f6a7956706cb67cf9c1ad5e55f4352cbc17 # v1.6.0
+        continue-on-error: true
+        with:
+          path: .
+          recursive: true
+          fix: true
+          formatter: stylish
 
-      - name: Lint Compose files
+      - name: Detect changes
         run: |
-          COMPOSE_FILES=$(find . -name "*compose*.yml" -o -name "*compose*.yaml" -o -name "*docker*.yml" -o -name "*docker*.yaml")
-          CHANGES_MADE=false
-
-          for file in $COMPOSE_FILES; do
-            echo "Linting $file"
-            if dclint --fix "$file"; then
-              if git diff --exit-code "$file" > /dev/null; then
-                echo "No changes needed for $file"
-              else
-                echo "Applied fixes to $file"
-                git add "$file"
-                CHANGES_MADE=true
-              fi
-            else
-              echo "Failed to lint $file, but continuing..."
-            fi
-          done
-
-          echo "CHANGES_MADE=$CHANGES_MADE" >> $GITHUB_ENV
+          if git diff --quiet; then
+            echo "CHANGES_MADE=false" >> "$GITHUB_ENV"
+          else
+            git add -u -- '*.yaml' '*.yml'
+            echo "CHANGES_MADE=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Create Pull Request
         if: env.CHANGES_MADE == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           commit-message: "Fix Docker Compose files with dclint"
-          title: "🐳 Docker Compose Linting Fixes"
+          title: "Fix Docker Compose lint errors"
           body: |
-            This PR contains automatic fixes applied by `dclint` to Docker Compose files.
-            These changes improve compliance with best practices and resolve common issues.
+            Automated fixes produced by `dclint`.
           branch: compose-lint-fixes
-          # branch-suffix: timestamp
           base: main
           delete-branch: true
