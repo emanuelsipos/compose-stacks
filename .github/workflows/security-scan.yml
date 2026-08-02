@@ -633,11 +633,23 @@ jobs:
           done
           echo "SCAN_ERRORS=$ERRORS" >> "$GITHUB_ENV"
 
+      - name: Combine image scan results
+        if: always() && hashFiles('trivy-image-results/image-*.sarif') != ''
+        run: |
+          jq -s '
+            {
+              version: "2.1.0",
+              "$schema": .[0]."$schema",
+              runs: [.[].runs[]]
+            }
+          ' trivy-image-results/image-*.sarif \
+            > trivy-image-results/combined.sarif
+
       - name: Upload image results to GitHub code scanning
-        if: always() && hashFiles('trivy-image-results/*.sarif') != ''
+        if: always() && hashFiles('trivy-image-results/combined.sarif') != ''
         uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
-          sarif_file: trivy-image-results
+          sarif_file: trivy-image-results/combined.sarif
           category: trivy-images-${{ matrix.id }}
 
       - name: Fail on scanner errors
