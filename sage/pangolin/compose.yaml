@@ -25,16 +25,16 @@ services:
       service: x-defaults
     read_only: true
 
-  cloudflared-public:
-    container_name: cloudflared-public
-    volumes:
-      - /opt/docker/pangolin/cloudflared-public/:/etc/cloudflared/
-    <<: *cloudflared-base
-
   cloudflared-dns:
     container_name: cloudflared-dns
     volumes:
       - /opt/docker/pangolin/cloudflared-dns/:/etc/cloudflared/
+    <<: *cloudflared-base
+
+  cloudflared-public:
+    container_name: cloudflared-public
+    volumes:
+      - /opt/docker/pangolin/cloudflared-public/:/etc/cloudflared/
     <<: *cloudflared-base
 
   crowdsec:
@@ -58,9 +58,9 @@ services:
       PARSERS: crowdsecurity/whitelists
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     ports:
+      - '${TAILSCALE_IP}:8080:8080'
       - '127.0.0.1:6060:6060'
       - '127.0.0.1:8080:8080'
-      - '${TAILSCALE_IP}:8080:8080'
     networks:
       default:
       socket_proxy:
