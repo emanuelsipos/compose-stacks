@@ -5,5 +5,5 @@
     "service-container-name-regex": 0
   },
   "quiet": false,
-  "debug": true
+  "debug": false
 }
