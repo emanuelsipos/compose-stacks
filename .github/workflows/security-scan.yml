@@ -187,9 +187,8 @@ jobs:
       # (FROM kics + FROM wolfi-base), adding 15-30 s of overhead with no
       # benefit. Running the published image directly is functionally identical.
       # Authenticate with Docker Hub before pulling KICS.
-      # Unauthenticated pulls are rate-limited to 100/6h per IP on self-hosted
-      # runners. A rate-limit hit produces exit 125, which '; true' swallows,
-      # leaving no results.json and a false-green scan.
+      # Unauthenticated pulls are rate-limited to 100/6h per IP. The command's
+      # exit code is recorded so runtime failures cannot become green scans.
       # Uses DOCKERHUB_USERNAME and DOCKERHUB_TOKEN when configured. Public
       # repositories can otherwise pull anonymously within Docker Hub limits.
       - name: Docker Hub login
@@ -216,6 +215,7 @@ jobs:
             EXCLUDE_ARGS="--exclude-results ${{ steps.kics-exclude.outputs.list }}"
           fi
           mkdir -p kics-results
+          set +e
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/scan" \
             -w /scan \
@@ -226,8 +226,10 @@ jobs:
             -o kics-results \
             -e .git,.cache,.github \
             --ignore-on-exit all \
-            $EXCLUDE_ARGS \
-          ; true  # exit 0 — block step evaluates findings separately
+            $EXCLUDE_ARGS
+          KICS_EXIT=$?
+          set -e
+          echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
 
       # KICS similarity IDs can change when a finding moves. Apply the same
       # stable rule-and-file suppression fallback used by the blocking step
@@ -339,8 +341,7 @@ jobs:
 
       # ── Block on CRITICAL/HIGH ─────────────────────────────────────────
       # Always runs regardless of trigger or dry_run — findings are findings.
-      # If KICS failed without producing results (e.g. Docker pull rate limit
-      # hit after '; true' swallowed exit 125), treat it as a hard failure.
+      # Treat a non-zero scanner exit or a missing report as a hard failure.
       #
       # Secondary suppression filter: --exclude-results filters by sim_id, but
       # sim_ids drift when a file is modified in a PR (KICS recomputes the hash
@@ -353,7 +354,10 @@ jobs:
         run: |
           BLOCK=0
 
-          if [ "${{ steps.kics.outcome }}" = "failure" ] && [ ! -f kics-results/results.json ]; then
+          if [ "${{ steps.kics.outcome }}" = "failure" ] || \
+             { [ "${{ steps.kics.outcome }}" = "success" ] && \
+               { [ "${{ steps.kics.outputs.exit_code }}" != "0" ] || \
+                 [ ! -f kics-results/results.json ]; }; }; then
             echo "::error::KICS scan failed to produce results. Check for docker pull errors above."
             BLOCK=1
           elif [ -f kics-results/results.json ]; then
@@ -746,8 +750,7 @@ jobs:
             -e .git,.cache,.github \
             --exclude-severities medium,low,info \
             --ignore-on-exit all \
-            $EXCLUDE_ARGS \
-          ; true  # always exit 0 — PR manager evaluates findings
+            $EXCLUDE_ARGS
 
       # One PR per finding. Closed-without-merge → permanently dismissed
       # unless --reopen is set (via the reopen_findings dispatch input).
