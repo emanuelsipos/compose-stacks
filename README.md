@@ -11,7 +11,7 @@ Docker Compose definitions for services running across a small self-hosted envir
 
 These files reflect a real deployment and are not intended to be used unchanged. Host paths, device mappings, network addresses, and environment variables must be adapted first. Komodo supplies each stack's environment at deployment time; `.env` files are not stored in this repository.
 
-Images are pinned and updated by Renovate. CI runs Compose linting, secret detection, misconfiguration checks, and vulnerability scans. Scanner results are published to GitHub code scanning; reviewed KICS exceptions are recorded in `.kics-exclude/`.
+Images are pinned and updated by Renovate. CI runs Compose linting, secret detection, misconfiguration checks, and vulnerability scans. Scanner results are published to GitHub code scanning; reviewed KICS exceptions and their compensating controls are documented in [`SECURITY.md`](SECURITY.md).
 
 ## License
 

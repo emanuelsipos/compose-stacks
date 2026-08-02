@@ -1,12 +1,17 @@
 # .kics-exclude/
 
 Each file in this directory suppresses one HIGH or CRITICAL KICS finding.
+The rationale and compensating controls for each accepted risk class are
+documented in [`SECURITY.md`](../SECURITY.md).
 
 ## File format
 
 ```
 Filename: {SEVERITY}_{QuerySlug}_{FileSlug}_L{line}_{sim8}
-Contents: the full KICS similarity_id (one line, no trailing newline)
+Contents:
+  line 1: full KICS similarity_id
+  line 2: KICS query_id (newer entries)
+  line 3: affected file path (newer entries)
 ```
 
 Where slugs replace `/`, `\`, and spaces with `-`, strip non-alphanumeric
@@ -32,7 +37,9 @@ was merged.
    Security Scan → workflow_dispatch).
 2. The "Generate Fix PRs" job opens one PR per unsuppressed HIGH/CRITICAL
    finding. Each PR adds one file to this directory.
-3. Review the finding and merge the PR to permanently suppress it.
+3. Confirm that its rationale and compensating controls are covered by
+   `SECURITY.md`; update the risk register if they are not.
+4. Merge the PR to permanently suppress it.
 
 To reopen a dismissed (closed-without-merge) suppression PR, trigger the
 Security Scan workflow with `reopen_findings=<sim8prefix>` (comma-separated,
