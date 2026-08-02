@@ -2,6 +2,12 @@
 
 Secrets and deployment-specific values are supplied by Komodo and are not stored in this repository. Images and GitHub Actions are pinned, Renovate maintains those pins, and CI scans changes with Gitleaks, Checkov, KICS, and Trivy.
 
+KICS and Checkov block new HIGH or CRITICAL misconfigurations. Trivy's
+filesystem scan also blocks HIGH or CRITICAL dependency findings. Container
+image findings are published to GitHub code scanning without failing the
+workflow; scanner errors still fail. Pushes and pull requests scan images from
+changed Compose files, while the weekly and manual scans cover every image.
+
 ## Accepted risks
 
 KICS suppressions are limited to reviewed HIGH findings in `.kics-exclude/`. They fall into four deployment requirements.
