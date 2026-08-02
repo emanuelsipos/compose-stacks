@@ -1,0 +1,134 @@
+---
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.8@sha256:2f527c9bb8b367120eb08b82890aa912ce96bfa1ada93dda0721700e4b4e0dde
+    container_name: crowdsec
+    depends_on:
+      - docker-socket-proxy
+    volumes:
+      - /opt/docker/pangolin/crowdsec/:/etc/crowdsec/
+      - /opt/docker/pangolin/crowdsec/db/:/var/lib/crowdsec/data/
+      - /opt/docker/pangolin/traefik/logs/:/var/log/traefik/
+    environment:
+      COLLECTIONS: crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      ENROLL_INSTANCE_NAME: pangolin-jupiter
+      ENROLL_TAGS: docker
+      GID: "1000"
+      PARSERS: crowdsecurity/whitelists
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    networks:
+      default:
+      socket_proxy:
+    command: -t
+    healthcheck:
+      test:
+        - CMD
+        - cscli
+        - lapi
+        - status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - traefik.enable=false
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  docker-socket-proxy:
+    container_name: pangolin_docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      POST: 0
+    networks:
+      - socket_proxy
+    extends:
+      file: ../../_common/base.yaml
+      service: x-docker-socket-proxy
+
+  pangolin:
+    image: fosrl/pangolin:1.21.1@sha256:dd3ccdce1ae340b73a8b7dffcdd34dc1f73e81c7b2cce14b224d841822e4541d
+    container_name: pangolin
+    volumes:
+      - /opt/docker/pangolin/:/app/config/
+    extra_hosts:
+      - authentik.${PUBLIC_DOMAIN}:${PANGOLIN_GATEWAY_IP:-172.20.0.251}
+      - git.${PUBLIC_DOMAIN}:${PANGOLIN_GATEWAY_IP:-172.20.0.251}
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3001/api/v1/" ]
+      interval: "3s"
+      timeout: "3s"
+      retries: 15
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  # gerbil:
+  #   extends:
+  #     file: ../../_common/base.yaml
+  #     service: x-defaults
+  #   image: fosrl/gerbil:1.0.0@sha256:ca0839f1cf41d5d9ec23ba6b2c43e725505e2cc7e1728cee9dbbcfb98e0f1659
+  #   container_name: gerbil
+  #   depends_on:
+  #     pangolin:
+  #       condition: service_healthy
+  #   command:
+  #     - --reachableAt=http://gerbil:3003
+  #     - --generateAndSaveKeyTo=/var/config/key
+  #     - --remoteConfig=http://pangolin:3001/api/v1/gerbil/get-config
+  #     - --reportBandwidthTo=http://pangolin:3001/api/v1/gerbil/receive-bandwidth
+  #   volumes:
+  #     - "/opt/docker/pangolin/:/var/config/"
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+  #   ports:
+  #     - "51820:51820/udp"
+  #     - "443:443"
+  #     - "80:80"
+  #   networks:
+  #     default:
+  #       ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
+
+  traefik:
+    image: traefik:v3.7.10@sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac
+    container_name: traefik
+    depends_on:
+      # crowdsec:
+      #   condition: service_healthy
+      pangolin:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - /opt/docker/pangolin/traefik/:/etc/traefik/:ro
+      - /opt/docker/pangolin/letsencrypt/:/letsencrypt/
+      - /opt/docker/pangolin/traefik/logs/:/var/log/traefik/
+    env_file: .env
+    # network_mode: service:gerbil
+    ports:
+      - '80:80'
+      - '443:443'
+      - '6697:6697/tcp'
+      - '6697:6697/udp'
+    networks:
+      default:
+        ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
+    command:
+      - --configFile=/etc/traefik/traefik_config.yml
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+networks:
+  default:
+    driver: bridge
+    name: pangolin
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  socket_proxy:
+    driver: bridge
+    internal: true

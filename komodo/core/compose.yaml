@@ -1,0 +1,41 @@
+---
+services:
+  core:
+    image: ghcr.io/moghtech/komodo-core:2.3.1@sha256:768faad246f19f4c1ddfbb675346a7fe9a5010506d31ed4a21251199387004a2
+    container_name: komodo-core
+    depends_on:
+      - mongo
+    volumes:
+      - /opt/docker/komodo/keys/:/config/keys/
+      - /opt/docker/komodo/backups/:/backups/
+    environment:
+      KOMODO_DATABASE_ADDRESS: mongo:27017
+      KOMODO_DATABASE_USERNAME: ${KOMODO_DB_USERNAME}
+      KOMODO_DATABASE_PASSWORD: ${KOMODO_DB_PASSWORD}
+    env_file: .env
+    ports:
+      - '9120:9120'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    labels:
+      - komodo.skip
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    init: true
+
+  mongo:
+    image: mongo:8@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
+    container_name: mongo
+    volumes:
+      - /opt/docker/komodo/mongo-data/:/data/db/
+      - /opt/docker/komodo/mongo-config/:/data/configdb/
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD}
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    labels:
+      - komodo.skip
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

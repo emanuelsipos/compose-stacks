@@ -1,0 +1,14 @@
+---
+services:
+  beets:
+    image: lscr.io/linuxserver/beets:2.13.1@sha256:691245106c0f6aedf62f909242733ceda26fdbbee17e07d02f253bf7784707bf
+    container_name: beets
+    volumes:
+      - /opt/docker/beets/:/config/
+      - /mnt/data3/torrents/music/:/music/:ro
+    env_file: .env
+    ports:
+      - '8337:8337'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

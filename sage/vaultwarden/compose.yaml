@@ -1,0 +1,18 @@
+---
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.37.1@sha256:ebdfe70701c60ac0c28c697e787cea767d7972940b786037b29fe0d507f821e8
+    container_name: vaultwarden
+    volumes:
+      - /opt/docker/vaultwarden/vw-data/:/data/
+    env_file: .env
+    networks:
+      - pangolin
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+networks:
+  pangolin:
+    external: true
+    name: pangolin

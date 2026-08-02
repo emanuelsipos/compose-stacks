@@ -1,0 +1,52 @@
+---
+services:
+  docker-socket-proxy:
+    container_name: fileflows_docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      POST: 1
+      INFO: 1
+    networks:
+      - socket_proxy
+    extends:
+      file: ../../_common/base.yaml
+      service: x-docker-socket-proxy
+
+  fileflows:
+    image: revenz/fileflows:26.07@sha256:a9ce79d8ad21a37ff1579f59cfa8844aded4026fd094e5a893ff476ffe0eaf93
+    depends_on:
+      - docker-socket-proxy
+    volumes:
+      - /opt/docker/fileflows/data/:/app/Data/
+      - /opt/docker/fileflows/logs/:/app/Logs/
+      - /opt/docker/fileflows/common/:/app/common/
+      - /mnt/data/:/data/
+      - /mnt/data2/:/data2/
+      - /mnt/data3/:/data3/
+      - type: tmpfs
+        target: /temp/
+        tmpfs:
+          size: 2000000000
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    env_file: .env
+    ports:
+      - '19200:5000'
+    networks:
+      default:
+      socket_proxy:
+    devices:
+      - /dev/dri:/dev/dri/
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    security_opt:
+      - no-new-privileges:false
+
+networks:
+  socket_proxy:
+    driver: bridge
+    internal: true

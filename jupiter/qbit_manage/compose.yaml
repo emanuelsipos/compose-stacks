@@ -1,0 +1,17 @@
+---
+services:
+  qbit_manage:
+    image: ghcr.io/stuffanthings/qbit_manage:v4.11.0@sha256:d888d415075dc6fb6843f77465c6eb5688e6d78f15d7bd6a00da1cdd99a92120
+    container_name: qbit_manage
+    volumes:
+      - /opt/docker/qbit_manage/:/config/
+      - /opt/docker/qbittorrent/:/qbittorrent/:ro
+      - /mnt/data/:/data/
+      - /mnt/data2/:/data2/
+      - /mnt/data3/:/data3/
+    env_file: .env
+    ports:
+      - '8080:8080'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

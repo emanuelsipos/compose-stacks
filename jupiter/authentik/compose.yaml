@@ -1,0 +1,72 @@
+---
+x-authentik-base: &authentik-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: ghcr.io/goauthentik/server:2026.5.6@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868
+  depends_on:
+    postgresql:
+      condition: service_healthy
+  environment:
+    AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?secret key required}
+    AUTHENTIK_POSTGRESQL__HOST: postgresql
+    AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+    AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+    AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+  env_file: .env
+
+services:
+  db-backup:
+    image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
+    container_name: authentik_db-backup
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/authentik/backup/:/backup/
+    environment:
+      DB01_TYPE: pgsql
+      DB01_HOST: postgresql
+      DB01_USER: ${PG_USER:-authentik}
+      DB01_NAME: ${PG_DB:-authentik}
+      DB01_PASS: ${PG_PASS}
+      CONTAINER_ENABLE_MONITORING: FALSE
+    env_file: .env
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  postgresql:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: authentik_postgres
+    volumes:
+      - /opt/docker/authentik/database/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-authentik}
+      POSTGRES_DB: ${PG_DB:-authentik}
+    env_file: .env
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  server:
+    container_name: authentik_server
+    volumes:
+      - /opt/docker/authentik/media/:/media/
+      - /opt/docker/authentik/custom-templates/:/templates/
+    ports:
+      - '${COMPOSE_PORT_HTTP:-9000}:9000'
+      - '${COMPOSE_PORT_HTTPS:-9443}:9443'
+    command: server
+    <<: *authentik-base
+
+  worker:
+    container_name: authentik_worker
+    volumes:
+      # - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker/authentik/media/:/media/
+      - /opt/docker/authentik/certs/:/certs/
+      - /opt/docker/authentik/custom-templates/:/templates/
+    command: worker
+    <<: *authentik-base

@@ -1,0 +1,14 @@
+---
+services:
+  maintainerr:
+    image: ghcr.io/maintainerr/maintainerr:3.21.1@sha256:811a580fdf479e8582d3c97047b1aa8930fc5523f63143498020864ad6a7cd80
+    container_name: maintainerr
+    volumes:
+      - /opt/docker/maintainerr/:/opt/data/
+    env_file: .env
+    ports:
+      - '6246:6246'
+    user: 1000:1000
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

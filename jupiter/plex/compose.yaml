@@ -1,0 +1,58 @@
+---
+x-git-updater: &git-updater
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: alpine/git:v2.54.0@sha256:729da2347ce652f30476b064198577fe12e1147e58499be9f343039343ef2cee
+  command:
+    - "-c"
+    - |
+      echo "Starting Git Auto-Updater..."
+      while true; do
+        echo "[ $$(date) ] Scanning for git repositories..."
+
+        # Dynamically find all .git folders at any depth
+        find /git -type d -name ".git" | while read gitdir; do
+          repo_dir=$$(dirname "$$gitdir")
+          echo "--> Pulling updates for $$repo_dir"
+          git -C "$$repo_dir" pull
+        done
+
+        echo "Update complete. Sleeping for 1 hour..."
+        sleep 3600
+      done
+  entrypoint: /bin/sh
+  user: ${PUID}:${PGID}
+
+services:
+  git-updater:
+    container_name: git-auto-updater
+    volumes:
+      - /opt/docker/plex/config/Library/Application Support/Plex Media Server/Plug-ins/:/git/
+    <<: *git-updater
+
+  plex:
+    image: lscr.io/linuxserver/plex:1.43.3@sha256:507713a14f9586f827d00c81381ecdcd438009172342b322b62a0e2b65081fdf
+    container_name: plex
+    volumes:
+      - /opt/docker/plex/config/:/config/
+      - /opt/docker/plex/custom-cont-init.d/:/custom-cont-init.d/
+      - /mnt/data/:/data/
+      - /mnt/data3/:/data3/
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000
+    env_file: .env
+    network_mode: host
+    healthcheck:
+      test: [ "CMD", "curl", "--connect-timeout", "15", "--silent", "--show-error", "--fail", "http://localhost:32400/identity" ]
+      interval: 1m
+      timeout: 30s
+      retries: 3
+      start_period: 2m
+    devices:
+      - /dev/dri/:/dev/dri/
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

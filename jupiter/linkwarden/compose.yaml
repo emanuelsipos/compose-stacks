@@ -1,0 +1,43 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: linkwarden_postgres
+    volumes:
+      - /opt/docker/linkwarden/pgdata/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_DB: ${PG_DB:-postgres}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  service.linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:v2.16.0@sha256:d805877fb707d160b809027c302f84cfba11a248d7fdc12de90b4791f98e6b55
+    container_name: linkwarden
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+      service.meilisearch:
+        condition: service_started
+    volumes:
+      - /linkwarden/:/data/data/
+    environment:
+      - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASS}@database.postgres:5432/${PG_DB:-postgres}
+    env_file: .env
+    ports:
+      - '3000:3000'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.meilisearch:
+    image: getmeili/meilisearch:v1.12.8@sha256:c9fac23131cca4db95173d41cc50fd5639121ee381795528fdd7522d7978a7b8
+    container_name: meilisearch
+    volumes:
+      - /opt/docker/linkwarden/meili_data/:/meili_data/
+    env_file: .env
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults

@@ -1,0 +1,98 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:19f988b90c8d0ad9c7edd70cf23c83e069abd8a57f0fdce0373588ddaf189894
+    container_name: postgres
+    volumes:
+      - /opt/docker/tt-rss/db/:/var/lib/postgresql/
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASS:?database password required}
+    networks:
+      - database_only
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      start_period: 30s
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.mercury:
+    image: wangqiru/mercury-parser-api:latest@sha256:db5f7f6d3997a7697aef924494f005c1142c6f404d9eb91b8c1a95e4e6e60405
+    container_name: mercury
+    networks:
+      - public_access
+      - service_only
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.opencc:
+    image: wangqiru/opencc-api-server:latest@sha256:df6c992935d0afee2ed1226ddf82079c19f6ee77cd8332ec82721a6d62aad97e
+    container_name: opencc
+    environment:
+      - NODE_ENV=production
+    networks:
+      - service_only
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.rsshub:
+    image: diygod/rsshub:chromium-bundled-2026-03-07@sha256:b41754680c4f59726d9ee152880ea919d5747a3fb29a3f9d7fefff71b8e79440
+    container_name: rsshub
+    environment:
+      NODE_ENV: production
+      DEBUG_INFO: false
+      LOGGER_LEVEL: error
+      NO_LOGFILES: true
+    networks:
+      - public_access
+      - service_only
+    expose:
+      - '1200'
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
+  service.ttrss:
+    image: wangqiru/ttrss:nightly-2026-03-03@sha256:ae00e0537b5579339c9ebebb72b3c024df0850120f0e99ab411d1d74d973ca53
+    container_name: ttrss
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    volumes:
+      - cache:/var/www/cache/
+      - /opt/docker/tt-rss/nginx.conf:/etc/nginx/nginx.conf:ro
+    env_file: .env
+    ports:
+      - '8080:80'
+    networks:
+      - public_access
+      - service_only
+      - database_only
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:80 || exit 1" ]
+      start_period: 30s
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    stdin_open: true
+    tty: true
+
+networks:
+  public_access: # Provide the access for ttrss UI
+  service_only:
+    # Provide the communication network between services only
+    internal: true
+  database_only:
+    # Provide the communication between ttrss and database only
+    internal: true
+
+volumes:
+  cache:

@@ -1,0 +1,31 @@
+---
+x-komf-base: &komf-base
+  extends:
+    file: ../../_common/base.yaml
+    service: x-defaults
+  image: sndxr/komf:1.7.1@sha256:4a6971a76abc30869f6d0555a7328ff8cd879f3016a7378395df331c1245cbb2
+  environment:
+    KOMF_LOG_LEVEL: INFO
+    TZ: ${TZ:-UTC}
+    JAVA_TOOL_OPTIONS: -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=compact -XX:ShenandoahGuaranteedGCInterval=3600000 -XX:TrimNativeHeapInterval=3600000
+  user: "${PUID:-1000}:${PGID:-1000}"
+x-vol-media: &vol-media /mnt/data3/media:/data3/media
+
+services:
+  komf:
+    container_name: komf
+    volumes:
+      - *vol-media
+      - /opt/docker/komf/:/config/
+    ports:
+      - '8085:8085'
+    <<: *komf-base
+
+  komfh:
+    container_name: komfh
+    volumes:
+      - *vol-media
+      - /opt/docker/komfh/:/config/
+    ports:
+      - '8086:8085'
+    <<: *komf-base
