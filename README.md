@@ -13,6 +13,8 @@ These files reflect a real deployment and are not intended to be used unchanged.
 
 Images are pinned and updated by Renovate. CI runs Compose linting, secret detection, misconfiguration checks, and vulnerability scans. Scanner results are published to GitHub code scanning; reviewed KICS exceptions and their compensating controls are documented in [`SECURITY.md`](SECURITY.md).
 
+Run `pre-commit install` to apply dclint fixes before each local commit. CI also opens an autofix PR when a push to `main` introduces a fixable lint issue.
+
 ## License
 
 [MIT](LICENSE)
