@@ -10,9 +10,6 @@
   "configMigration": true,
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
-  "ignorePaths": [
-    ".archive/**"
-  ],
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
@@ -82,11 +79,6 @@
         "matchPackageNames": [
           "ghcr.io/dictionarry-hub/*"
         ]
-      },
-      {
-        "matchManagers": ["github-actions"],
-        "automerge": true,
-        "automergeType": "pr"
       },
       {
         "matchManagers": ["docker-compose"],
