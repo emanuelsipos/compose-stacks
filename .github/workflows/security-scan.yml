@@ -82,6 +82,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate KICS exclusions
+        run: python3 .github/scripts/validate-kics-exclusions.py
+
       # Build the exclude_results list from .kics-exclude/ on origin/main.
       # Reading from origin/main (not the checked-out branch) ensures PR scans
       # always use the latest suppressions, even if the PR branch was created
