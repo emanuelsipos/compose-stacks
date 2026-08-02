@@ -36,8 +36,12 @@ services:
     image: getmeili/meilisearch:v1.51.0@sha256:a9eb29ee09ab4943db3b4c68620bd6f3382e6b2b0ac4431c0e607b48dbcd4c14
     container_name: meilisearch
     volumes:
-      - /opt/docker/linkwarden/meili_data/:/meili_data/
-    env_file: .env
+      - /opt/docker/linkwarden/meilisearch/:/meili_data/
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_UPGRADE_DB: "true"
+    user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
