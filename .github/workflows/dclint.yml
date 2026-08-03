@@ -63,6 +63,16 @@ jobs:
             echo "CHANGES_MADE=true" >> "$GITHUB_ENV"
           fi
 
+      - name: Check remaining Compose errors
+        id: lint-after-fix
+        continue-on-error: true
+        uses: docker-compose-linter/dclint-github-action@18659f6a7956706cb67cf9c1ad5e55f4352cbc17 # v1.6.0
+        with:
+          path: .
+          recursive: true
+          formatter: github
+          max-warnings: 0
+
       - name: Create Pull Request
         if: env.CHANGES_MADE == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
@@ -74,3 +84,7 @@ jobs:
           branch: compose-lint-fixes
           base: main
           delete-branch: true
+
+      - name: Fail on unfixable Compose errors
+        if: always() && steps.lint-after-fix.outcome == 'failure'
+        run: exit 1
