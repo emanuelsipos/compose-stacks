@@ -113,7 +113,7 @@ jobs:
           fi
 
       # ── Resolve which files changed (PR only) ──────────────────────────
-      - name: Get changed compose files
+      - name: Get changed Compose inputs
         id: changed
         if: github.event_name == 'pull_request'
         uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
@@ -121,6 +121,7 @@ jobs:
           files: |
             **/compose.yaml
             **/compose.yml
+            _common/base.yaml
 
       - name: Get changed workflow files
         id: workflow-changed
@@ -131,23 +132,23 @@ jobs:
             .github/workflows/**
 
       # Build the KICS scan path:
-      #   PR + compose files changed → space-separated list of changed files
-      #   PR + no compose changes    → skip KICS entirely (flag via output)
-      #   push/schedule/dispatch     → scan everything
+      #   PR + Compose inputs changed → comma-separated list of changed files
+      #   PR + no relevant changes    → skip KICS entirely (flag via output)
+      #   push/schedule/dispatch      → scan everything
       - name: Resolve KICS scan path
         id: kics-path
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            COMPOSE=$(echo "${{ steps.changed.outputs.all_changed_files }}" \
+            INPUTS=$(echo "${{ steps.changed.outputs.all_changed_files }}" \
               | tr ' ' '\n' \
-              | grep -E 'compose\.ya?ml$' \
+              | grep -E '(compose\.ya?ml|_common/base\.yaml)$' \
               | tr '\n' ',' \
               | sed 's/,$//')
-            if [ -z "$COMPOSE" ]; then
+            if [ -z "$INPUTS" ]; then
               echo "skip=true"  >> "$GITHUB_OUTPUT"
             else
               echo "skip=false" >> "$GITHUB_OUTPUT"
-              echo "path=$COMPOSE" >> "$GITHUB_OUTPUT"
+              echo "path=$INPUTS" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
