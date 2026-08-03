@@ -72,9 +72,20 @@ KICS_EXCLUDE_DIR = ".kics-exclude"
 DEFAULT_PR_LIMIT = 20
 
 
+class GitHubAPIError(RuntimeError):
+    """Raised when GitHub API state cannot be fetched or changed safely."""
+
+
 # -- GitHub API ----------------------------------------------------------------
 
-def gh(method: str, path: str, token: str, payload: dict | None = None) -> dict | list | None:
+def gh(
+    method: str,
+    path: str,
+    token: str,
+    payload: dict | None = None,
+    *,
+    allow_not_found: bool = False,
+) -> dict | list | None:
     url = f"https://api.github.com{path}"
     data = json.dumps(payload).encode() if payload is not None else None
     req = Request(url, data=data, method=method, headers={
@@ -89,11 +100,17 @@ def gh(method: str, path: str, token: str, payload: dict | None = None) -> dict 
     except HTTPError as e:
         body = e.read().decode(errors="replace")
         print(f"  GitHub {method} {path} -> {e.code}: {body[:300]}", file=sys.stderr)
-        return None
+        if e.code == 404 and allow_not_found:
+            return None
+        raise GitHubAPIError(
+            f"GitHub {method} {path} failed with HTTP {e.code}"
+        ) from e
 
 
 def ensure_label(token: str, repo: str) -> None:
-    if gh("GET", f"/repos/{repo}/labels/{LABEL_NAME}", token):
+    if gh(
+        "GET", f"/repos/{repo}/labels/{LABEL_NAME}", token, allow_not_found=True
+    ):
         return
     gh("POST", f"/repos/{repo}/labels", token, {
         "name": LABEL_NAME,
@@ -125,7 +142,9 @@ def prefetch_all_kics_prs(token: str, repo: str) -> dict[str, dict]:
             f"/repos/{repo}/pulls?state=all&per_page=100&page={page}&sort=updated&direction=desc",
             token,
         )
-        if not batch or not isinstance(batch, list):
+        if not isinstance(batch, list):
+            raise GitHubAPIError("GitHub pull request listing returned invalid data")
+        if not batch:
             break
         for pr in batch:
             body = pr.get("body") or ""
@@ -287,6 +306,22 @@ def current_branch() -> str:
     return git("rev-parse", "--abbrev-ref", "HEAD")
 
 
+def remote_branch_exists(branch: str) -> bool:
+    result = subprocess.run(
+        ["git", "ls-remote", "--exit-code", "--heads", "origin", branch],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 2:
+        return False
+    raise subprocess.CalledProcessError(
+        result.returncode, result.args, output=result.stdout, stderr=result.stderr
+    )
+
+
 # -- PR content ----------------------------------------------------------------
 
 def sim_tag(similarity_id: str) -> str:
@@ -435,6 +470,9 @@ def process_finding(
 
     # -- 4. Apply exclude-results suppression ----------------------------------
     try:
+        if existing is None and remote_branch_exists(branch):
+            print(f"  -> error: remote branch {branch} exists without a tracked PR")
+            return "error"
         create_branch_from_origin(base_branch, branch)
 
         ok, reason = apply_exclude_file(finding)
@@ -473,6 +511,24 @@ def process_finding(
 
 # -- Entry point ---------------------------------------------------------------
 
+def parse_reopen(value: str) -> set[str]:
+    raw = value.strip()
+    if not raw:
+        return set()
+    if raw == "all":
+        return {"*"}
+    prefixes = {part.strip() for part in raw.split(",") if part.strip()}
+    invalid = sorted(
+        prefix for prefix in prefixes if not re.fullmatch(r"[a-f0-9]{8,64}", prefix)
+    )
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            "--reopen values must be 'all' or lowercase hexadecimal "
+            "similarity_id prefixes between 8 and 64 characters"
+        )
+    return prefixes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kics",      required=True, help="Path to KICS results JSON")
@@ -486,7 +542,7 @@ def main() -> None:
                         help=f"Max PRs to open per run (default: {DEFAULT_PR_LIMIT}). "
                              "Prevents runaway PR creation when many new findings appear. "
                              "Run again to process remaining findings.")
-    parser.add_argument("--reopen",    default="",
+    parser.add_argument("--reopen",    type=parse_reopen, default=set(),
                         metavar="all|SIM[,SIM,...]",
                         help="Reprocess dismissed findings. Pass 'all' or comma-separated "
                              "similarity_id prefixes (>=8 chars). Only findings in the current "
@@ -503,16 +559,11 @@ def main() -> None:
     if args.dry_run:
         print("[dry-run mode -- no PRs will be opened or branches pushed]")
 
-    # Build reopen set
-    reopen_set: set[str] = set()
-    if args.reopen.strip():
-        raw = args.reopen.strip()
-        if raw.lower() == "all":
-            reopen_set = {"*"}
-            print("--reopen all: dismissed findings will be reprocessed")
-        else:
-            reopen_set = {p.strip() for p in raw.split(",") if p.strip()}
-            print(f"--reopen: reprocessing dismissed findings matching: {reopen_set}")
+    reopen_set = args.reopen
+    if reopen_set == {"*"}:
+        print("--reopen all: dismissed findings will be reprocessed")
+    elif reopen_set:
+        print(f"--reopen: reprocessing dismissed findings matching: {reopen_set}")
 
     pr_budget = [args.pr_limit]
     print(f"PR limit: {args.pr_limit} per run")
@@ -545,6 +596,8 @@ def main() -> None:
         print(f"\n  (!)  {stats['rate-limited']} findings hit the PR limit.")
         print(f"     Re-run with --pr-limit {args.pr_limit + DEFAULT_PR_LIMIT} to process more,")
         print(f"     or trigger the workflow again (schedule/dispatch).")
+    if stats.get("error", 0):
+        raise SystemExit(f"{stats['error']} finding(s) failed to process")
 
 
 if __name__ == "__main__":
