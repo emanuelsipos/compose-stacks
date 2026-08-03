@@ -85,6 +85,9 @@ jobs:
       - name: Validate KICS exclusions
         run: python3 .github/scripts/validate-kics-exclusions.py
 
+      - name: Validate synchronized KICS pins
+        run: python3 .github/scripts/security_scan.py verify-kics-pins
+
       # Build the exclude_results list from .kics-exclude/ on origin/main.
       # Reading from origin/main (not the checked-out branch) ensures PR scans
       # always use the latest suppressions, even if the PR branch was created
@@ -177,7 +180,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Checkmarx/kics
-          ref: 3778c88b04d04c861c98234069010930079176c3 # v2.1.21
+          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
           path: .cache/kics-source
 
       - name: Install checksum-pinned KICS
@@ -641,11 +644,14 @@ jobs:
           git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
           python3 .github/scripts/security_scan.py exclusions
 
+      - name: Validate synchronized KICS pins
+        run: python3 .github/scripts/security_scan.py verify-kics-pins
+
       - name: Checkout pinned KICS queries
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Checkmarx/kics
-          ref: 3778c88b04d04c861c98234069010930079176c3 # v2.1.21
+          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
           path: .cache/kics-source
 
       - name: Install checksum-pinned KICS
