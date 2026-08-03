@@ -52,7 +52,7 @@
     {
       "groupName": "ente",
       "matchPackageNames": [
-        "ghcr.io/ente-io/*"
+        "ghcr.io/ente/*"
       ]
     },
     {
@@ -181,8 +181,8 @@
         "simplelogin/postfix",
         "ghcr.io/bakito/adguardhome-sync",
         "ghcr.io/moghtech/komodo-core",
-        "ghcr.io/ente-io/server",
-        "ghcr.io/ente-io/web",
+        "ghcr.io/ente/server",
+        "ghcr.io/ente/web",
         "adguard/adguardhome",
         "fosrl/pangolin",
         "fosrl/gerbil",
