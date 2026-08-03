@@ -14,7 +14,7 @@ services:
       service: x-postgres
 
   service.chaptarr:
-    image: robertlordhood/chaptarr:latest@sha256:912f4f5b3049b478e8f76a05945999e5faafb94cd6e4976544d2334f011a11a1
+    image: robertlordhood/chaptarr:0.9.879@sha256:912f4f5b3049b478e8f76a05945999e5faafb94cd6e4976544d2334f011a11a1
     container_name: chaptarr
     depends_on:
       database.postgres:
