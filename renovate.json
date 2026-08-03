@@ -25,6 +25,15 @@
       "automergeType": "pr"
     },
     {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
       "groupName": "immich",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-machine-learning",
