@@ -5,17 +5,26 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
 import subprocess
+import tarfile
+import urllib.request
 from pathlib import Path
 
 
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
-DEFAULT_KICS_IMAGE = "checkmarx/kics:v2.1.20"
+KICS_VERSION = "2.1.20"
+KICS_ARCHIVE_SHA256 = "8a5aa375ccfdc0ddd1114eddf1f9638ad7f6122e98d12a592207509dbe6d81f8"
+KICS_ARCHIVE_URL = (
+    f"https://github.com/Checkmarx/kics/releases/download/v{KICS_VERSION}/"
+    f"kics_{KICS_VERSION}_linux_amd64.tar.gz"
+)
 
 
 def changed_deployment_files(before: str, after: str, root: Path) -> list[Path]:
@@ -107,14 +116,7 @@ def exclusion_ids(root: Path, ref: str) -> list[str]:
 
 def kics_command(args: argparse.Namespace, root: Path) -> list[str]:
     command = [
-        "docker",
-        "run",
-        "--rm",
-        "-v",
-        f"{root}:/scan",
-        "-w",
-        "/scan",
-        args.image,
+        str(Path(args.executable).resolve()),
         "scan",
         "-p",
         args.path,
@@ -134,6 +136,27 @@ def kics_command(args: argparse.Namespace, root: Path) -> list[str]:
     if args.exclude_results:
         command.extend(["--exclude-results", args.exclude_results])
     return command
+
+
+def install_kics(args: argparse.Namespace) -> None:
+    destination = Path(args.destination).resolve()
+    with urllib.request.urlopen(KICS_ARCHIVE_URL) as response:
+        archive = response.read()
+    actual_digest = hashlib.sha256(archive).hexdigest()
+    if actual_digest != KICS_ARCHIVE_SHA256:
+        raise SystemExit(
+            f"KICS archive SHA-256 mismatch: expected {KICS_ARCHIVE_SHA256}, "
+            f"received {actual_digest}"
+        )
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
+        source = package.extractfile("kics")
+        if source is None:
+            raise SystemExit("KICS archive does not contain the kics binary")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as binary:
+            shutil.copyfileobj(source, binary)
+    destination.chmod(0o755)
+    print(f"Installed KICS {KICS_VERSION} at {destination}")
 
 
 def write_output(name: str, value: str) -> None:
@@ -212,9 +235,13 @@ def parser() -> argparse.ArgumentParser:
     kics_parser.add_argument("--output", required=True)
     kics_parser.add_argument("--exclude-results", default="")
     kics_parser.add_argument("--exclude-severities", default="")
-    kics_parser.add_argument("--image", default=DEFAULT_KICS_IMAGE)
+    kics_parser.add_argument("--executable", default="kics")
     kics_parser.add_argument("--root", default=".")
     kics_parser.set_defaults(func=kics)
+
+    install_parser = commands.add_parser("install-kics")
+    install_parser.add_argument("--destination", required=True)
+    install_parser.set_defaults(func=install_kics)
     return root
 
 
