@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from pathlib import Path
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
 IMAGE_BUCKET_COUNT = 16
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
+PACKAGE_LINE = re.compile(r"^Package:\s*(.+)$", re.MULTILINE)
 SARIF_SCHEMA = (
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/"
     "cs01/schemas/sarif-schema-2.1.0.json"
@@ -93,6 +95,22 @@ def images_from_files(files: list[Path]) -> list[str]:
     return sorted(images)
 
 
+def canonical_image_repository(image: str) -> str:
+    reference = image.split("@", 1)[0]
+    last_slash = reference.rfind("/")
+    last_colon = reference.rfind(":")
+    if last_colon > last_slash:
+        reference = reference[:last_colon]
+
+    parts = reference.split("/")
+    first = parts[0]
+    if len(parts) == 1:
+        return f"docker.io/library/{reference}".lower()
+    if "." not in first and ":" not in first and first != "localhost":
+        return f"docker.io/{reference}".lower()
+    return reference.lower()
+
+
 def image_matrix(
     images: list[str],
     bucket_count: int = IMAGE_BUCKET_COUNT,
@@ -100,7 +118,11 @@ def image_matrix(
 ) -> dict[str, list[dict[str, str]]]:
     buckets: dict[int, list[str]] = {}
     for image in sorted(set(images)):
-        bucket = int(hashlib.sha256(image.encode()).hexdigest()[:8], 16) % bucket_count
+        repository = canonical_image_repository(image)
+        bucket = (
+            int(hashlib.sha256(repository.encode()).hexdigest()[:8], 16)
+            % bucket_count
+        )
         buckets.setdefault(bucket, []).append(image)
     bucket_ids = range(bucket_count) if include_empty else sorted(buckets)
     return {
@@ -127,6 +149,86 @@ def empty_sarif() -> dict:
             }
         ],
     }
+
+
+def normalize_image_sarif(document: dict, image: str) -> dict:
+    normalized = copy.deepcopy(document)
+    repository = canonical_image_repository(image)
+    repository_path = repository.split("/", 1)[-1]
+
+    def normalize_uri(uri: str) -> tuple[str, str]:
+        prefix = f"docker-image://{repository}/"
+        if uri.startswith(prefix):
+            return uri, urllib.parse.unquote(uri.removeprefix(prefix))
+        target = uri.lstrip("/")
+        if target in {repository, repository_path}:
+            target = "container"
+        quoted_target = urllib.parse.quote(target, safe="/:@")
+        return f"{prefix}{quoted_target}", target
+
+    for run in normalized.get("runs", []):
+        run["properties"] = {
+            "imageRepository": repository,
+            "imageReference": image,
+        }
+        artifacts = run.get("artifacts", [])
+        artifact_targets: dict[int, str] = {}
+        for index, artifact in enumerate(artifacts):
+            location = artifact.get("location", {})
+            if isinstance(location.get("uri"), str):
+                location["uri"], artifact_targets[index] = normalize_uri(
+                    location["uri"]
+                )
+                location.pop("uriBaseId", None)
+
+        for result in run.get("results", []):
+            properties = result.setdefault("properties", {})
+            properties["imageRepository"] = repository
+            properties["imageReference"] = image
+
+            result_targets: list[str] = []
+
+            def normalize_result_locations(value: object) -> None:
+                if isinstance(value, dict):
+                    artifact_location = value.get("artifactLocation")
+                    if isinstance(artifact_location, dict):
+                        artifact_index = artifact_location.get("index")
+                        if isinstance(artifact_location.get("uri"), str):
+                            artifact_location["uri"], target = normalize_uri(
+                                artifact_location["uri"]
+                            )
+                            artifact_location.pop("uriBaseId", None)
+                            result_targets.append(target)
+                        elif isinstance(artifact_index, int):
+                            if target := artifact_targets.get(artifact_index):
+                                result_targets.append(target)
+                    for child in value.values():
+                        normalize_result_locations(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        normalize_result_locations(child)
+
+            normalize_result_locations(result)
+            target = result_targets[0] if result_targets else ""
+
+            message = result.get("message", {}).get("text", "")
+            package_match = PACKAGE_LINE.search(message)
+            rule_id = result.get("ruleId")
+            if package_match and rule_id and target:
+                identity = "\0".join(
+                    [
+                        "trivy-container-v1",
+                        repository,
+                        rule_id,
+                        package_match.group(1).strip(),
+                        target,
+                    ]
+                )
+                result.setdefault("partialFingerprints", {})[
+                    "primaryLocationLineHash"
+                ] = hashlib.sha256(identity.encode()).hexdigest()
+
+    return normalized
 
 
 def combine_sarif(documents: list[dict]) -> dict:
@@ -175,6 +277,7 @@ def combine_sarif(documents: list[dict]) -> dict:
 
     driver["rules"] = combined_rules
     combined["results"] = combined_results
+    combined.pop("properties", None)
     if combined_artifacts:
         combined["artifacts"] = combined_artifacts
     else:
@@ -348,6 +451,18 @@ def combine(args: argparse.Namespace) -> None:
     )
 
 
+def normalize(args: argparse.Namespace) -> None:
+    source = Path(args.input)
+    document = json.loads(source.read_text(encoding="utf-8"))
+    Path(args.output).write_text(
+        json.dumps(
+            normalize_image_sarif(document, args.image),
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+
 def exclusions(args: argparse.Namespace) -> None:
     values = exclusion_ids(Path(args.root).resolve(), args.ref)
     write_output("list", ",".join(values))
@@ -385,6 +500,12 @@ def parser() -> argparse.ArgumentParser:
     combine_parser.add_argument("--pattern", required=True)
     combine_parser.add_argument("--output", required=True)
     combine_parser.set_defaults(func=combine)
+
+    normalize_parser = commands.add_parser("normalize-image-sarif")
+    normalize_parser.add_argument("--input", required=True)
+    normalize_parser.add_argument("--output", required=True)
+    normalize_parser.add_argument("--image", required=True)
+    normalize_parser.set_defaults(func=normalize)
 
     exclusions_parser = commands.add_parser("exclusions")
     exclusions_parser.add_argument("--ref", default="origin/main")
