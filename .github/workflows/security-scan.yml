@@ -491,7 +491,10 @@ jobs:
           fetch-depth: 0
 
       - name: Test security scan helpers
-        run: python3 .github/scripts/test_security_scan.py
+        run: >-
+          python3 -m unittest discover
+          --start-directory .github/scripts
+          --pattern 'test_*.py'
 
       - name: Build image scan matrix
         id: plan
