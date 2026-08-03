@@ -136,6 +136,53 @@ class SecurityScanTests(unittest.TestCase):
 
             self.assertEqual(values, [similarity_id])
 
+    def test_verify_kics_pins_accepts_matching_versions(self):
+        checkout = (
+            "repository: Checkmarx/kics\n"
+            f"ref: {'a' * 40} # v{security_scan.KICS_VERSION}\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "security-scan.yml"
+            workflow.write_text(checkout * security_scan.KICS_QUERY_REF_COUNT)
+            arguments = security_scan.parser().parse_args(
+                ["verify-kics-pins", "--workflow", str(workflow)]
+            )
+
+            security_scan.verify_kics_pins(arguments)
+
+    def test_verify_kics_pins_rejects_mismatched_version(self):
+        checkout = (
+            "repository: Checkmarx/kics\n"
+            f"ref: {'a' * 40} # v{security_scan.KICS_VERSION}\n"
+        )
+        mismatch = (
+            "repository: Checkmarx/kics\n"
+            f"ref: {'b' * 40} # v99.0.0\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "security-scan.yml"
+            workflow.write_text(checkout + mismatch)
+            arguments = security_scan.parser().parse_args(
+                ["verify-kics-pins", "--workflow", str(workflow)]
+            )
+
+            with self.assertRaisesRegex(SystemExit, "do not match"):
+                security_scan.verify_kics_pins(arguments)
+
+    def test_verify_kics_pins_rejects_missing_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "security-scan.yml"
+            workflow.write_text(
+                "repository: Checkmarx/kics\n"
+                f"ref: {'a' * 40} # v{security_scan.KICS_VERSION}\n"
+            )
+            arguments = security_scan.parser().parse_args(
+                ["verify-kics-pins", "--workflow", str(workflow)]
+            )
+
+            with self.assertRaisesRegex(SystemExit, "Expected"):
+                security_scan.verify_kics_pins(arguments)
+
     def test_install_kics_verifies_and_extracts_archive(self):
         archive = io.BytesIO()
         payload = b"kics binary"
