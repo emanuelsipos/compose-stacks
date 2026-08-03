@@ -19,6 +19,10 @@ from pathlib import Path
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
+KICS_QUERY_REF = re.compile(
+    r"repository:\s*Checkmarx/kics\s*\n\s*ref:\s*[a-f0-9]{40}\s*#\s*v([^\s]+)"
+)
+KICS_QUERY_REF_COUNT = 2
 KICS_VERSION = "2.1.20"
 KICS_ARCHIVE_SHA256 = "8a5aa375ccfdc0ddd1114eddf1f9638ad7f6122e98d12a592207509dbe6d81f8"
 KICS_ARCHIVE_URL = (
@@ -163,6 +167,23 @@ def install_kics(args: argparse.Namespace) -> None:
     print(f"Installed KICS {KICS_VERSION} at {destination}")
 
 
+def verify_kics_pins(args: argparse.Namespace) -> None:
+    workflow = Path(args.workflow)
+    versions = KICS_QUERY_REF.findall(workflow.read_text(encoding="utf-8"))
+    if len(versions) != KICS_QUERY_REF_COUNT:
+        raise SystemExit(
+            f"Expected {KICS_QUERY_REF_COUNT} pinned Checkmarx/kics checkouts in "
+            f"{workflow}, found {len(versions)}"
+        )
+    mismatches = [version for version in versions if version != KICS_VERSION]
+    if mismatches:
+        raise SystemExit(
+            f"KICS query version(s) {', '.join(mismatches)} do not match "
+            f"the scanner version {KICS_VERSION}"
+        )
+    print(f"Validated {len(versions)} KICS query pin(s) at v{KICS_VERSION}")
+
+
 def write_output(name: str, value: str) -> None:
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"{name}={value}\n")
@@ -244,6 +265,12 @@ def parser() -> argparse.ArgumentParser:
     kics_parser.add_argument("--executable", default="kics")
     kics_parser.add_argument("--root", default=".")
     kics_parser.set_defaults(func=kics)
+
+    verify_parser = commands.add_parser("verify-kics-pins")
+    verify_parser.add_argument(
+        "--workflow", default=".github/workflows/security-scan.yml"
+    )
+    verify_parser.set_defaults(func=verify_kics_pins)
 
     install_parser = commands.add_parser("install-kics")
     install_parser.add_argument("--destination", required=True)

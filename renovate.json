@@ -292,12 +292,25 @@
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-dockerupdate-(?<patch>\\d+))?$"
     },
     {
+      "groupName": "kics",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "Checkmarx/kics",
+        "Checkmarx/kics (linux_amd64 archive)"
+      ],
+      "minimumGroupSize": 2
+    },
+    {
       "matchManagers": [
         "custom.regex"
       ],
       "addLabels": [
         "pins"
-      ]
+      ],
+      "automerge": true,
+      "automergeType": "pr"
     }
   ],
   "hostRules": [
