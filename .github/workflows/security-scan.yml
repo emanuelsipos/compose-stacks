@@ -564,6 +564,12 @@ jobs:
             elif [ ! -s "$REPORT" ]; then
               echo "::error::Trivy did not produce SARIF for $image"
               ERRORS=$((ERRORS + 1))
+            elif ! python3 .github/scripts/security_scan.py normalize-image-sarif \
+              --input "$REPORT" \
+              --output "$REPORT" \
+              --image "$image"; then
+              echo "::error::Could not normalize SARIF identity for $image"
+              ERRORS=$((ERRORS + 1))
             fi
             if ! trivy clean --scan-cache; then
               echo "::warning::Trivy scan cache cleanup failed"
