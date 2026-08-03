@@ -25,9 +25,6 @@
 #
 # The goal is to suppress noise, not silence real findings.
 
-exclude-paths:
-  - _common
-
 exclude-queries:
     # ── Resource limits (not meaningful on a single-host deployment) ───────
     - bb9ac4f7-e13b-423d-a010-c74a1bfbe492  # Memory Not Limited
