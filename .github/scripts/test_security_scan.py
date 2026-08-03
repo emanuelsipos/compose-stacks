@@ -114,6 +114,98 @@ class SecurityScanTests(unittest.TestCase):
         self.assertEqual(sorted(images), ["example/a:1", "example/b:2"])
         self.assertTrue(all(len(item["id"]) == 2 for item in matrix["include"]))
 
+    def test_full_image_matrix_includes_empty_buckets(self):
+        matrix = security_scan.image_matrix(
+            ["example/a:1"],
+            bucket_count=4,
+            include_empty=True,
+        )
+
+        self.assertEqual(
+            [item["id"] for item in matrix["include"]],
+            ["00", "01", "02", "03"],
+        )
+        self.assertEqual(
+            sum(bool(item["images"]) for item in matrix["include"]),
+            1,
+        )
+
+    def test_full_image_matrix_preserves_categories_when_empty(self):
+        matrix = security_scan.image_matrix([], include_empty=True)
+
+        self.assertEqual(
+            [item["id"] for item in matrix["include"]],
+            [f"{bucket:02d}" for bucket in range(security_scan.IMAGE_BUCKET_COUNT)],
+        )
+        self.assertTrue(all(item["images"] == "" for item in matrix["include"]))
+
+    def test_image_bucket_mapping_is_stable(self):
+        matrix = security_scan.image_matrix(["example/a:1"])
+
+        self.assertEqual(matrix["include"], [{"id": "14", "images": "example/a:1"}])
+
+    def test_image_scan_files_marks_complete_and_partial_inventories(self):
+        root = Path("/workspace")
+        full_files = [root / "stack/compose.yaml"]
+        changed_files = [root / "stack/fragment.yaml"]
+        with (
+            mock.patch.object(
+                security_scan,
+                "all_deployment_files",
+                return_value=full_files,
+            ),
+            mock.patch.object(
+                security_scan,
+                "changed_deployment_files",
+                return_value=changed_files,
+            ),
+        ):
+            scheduled = security_scan.image_scan_files(
+                "schedule", "", "", "", "all", root
+            )
+            pushed = security_scan.image_scan_files(
+                "push", "a" * 40, "", "", "all", root
+            )
+            non_trivy_dispatch = security_scan.image_scan_files(
+                "workflow_dispatch", "", "", "", "kics", root
+            )
+
+        self.assertEqual(scheduled, (full_files, True))
+        self.assertEqual(pushed, (changed_files, False))
+        self.assertEqual(non_trivy_dispatch, ([], False))
+
+    def test_plan_outputs_complete_matrix_for_scheduled_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stack = root / "stack"
+            stack.mkdir()
+            (stack / "compose.yaml").write_text(
+                "services:\n  app:\n    image: example/app:1\n"
+            )
+            output = root / "github-output"
+            arguments = security_scan.parser().parse_args(
+                ["plan", "--event", "schedule", "--root", str(root)]
+            )
+            with mock.patch.dict(
+                "os.environ",
+                {"GITHUB_OUTPUT": str(output)},
+                clear=False,
+            ):
+                security_scan.plan(arguments)
+
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text().splitlines()
+            )
+            matrix = json.loads(values["matrix"])
+
+        self.assertEqual(values["count"], "1")
+        self.assertEqual(values["full_inventory"], "true")
+        self.assertEqual(
+            len(matrix["include"]),
+            security_scan.IMAGE_BUCKET_COUNT,
+        )
+
     def test_combine_sarif_merges_runs_and_remaps_indices(self):
         combined = security_scan.combine_sarif(
             [
@@ -179,6 +271,16 @@ class SecurityScanTests(unittest.TestCase):
             security_scan.combine_sarif([])
         with self.assertRaises(ValueError):
             security_scan.combine_sarif([{"runs": []}])
+
+    def test_combine_sarif_files_emits_empty_trivy_snapshot(self):
+        combined = security_scan.combine_sarif_files([])
+
+        self.assertEqual(combined["version"], "2.1.0")
+        self.assertEqual(len(combined["runs"]), 1)
+        run = combined["runs"][0]
+        self.assertEqual(run["tool"]["driver"]["name"], "Trivy")
+        self.assertEqual(run["tool"]["driver"]["rules"], [])
+        self.assertEqual(run["results"], [])
 
     def test_kics_command_adds_optional_filters(self):
         arguments = security_scan.parser().parse_args(

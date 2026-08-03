@@ -18,7 +18,12 @@ from pathlib import Path
 
 
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
+IMAGE_BUCKET_COUNT = 16
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
+SARIF_SCHEMA = (
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/"
+    "cs01/schemas/sarif-schema-2.1.0.json"
+)
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
 KICS_QUERY_REF = re.compile(
     r"repository:\s*Checkmarx/kics\s*\n\s*ref:\s*[a-f0-9]{40}\s*#\s*v([^\s]+)"
@@ -88,16 +93,39 @@ def images_from_files(files: list[Path]) -> list[str]:
     return sorted(images)
 
 
-def image_matrix(images: list[str], bucket_count: int = 16) -> dict[str, list[dict[str, str]]]:
+def image_matrix(
+    images: list[str],
+    bucket_count: int = IMAGE_BUCKET_COUNT,
+    include_empty: bool = False,
+) -> dict[str, list[dict[str, str]]]:
     buckets: dict[int, list[str]] = {}
     for image in sorted(set(images)):
         bucket = int(hashlib.sha256(image.encode()).hexdigest()[:8], 16) % bucket_count
         buckets.setdefault(bucket, []).append(image)
+    bucket_ids = range(bucket_count) if include_empty else sorted(buckets)
     return {
         "include": [
-            {"id": f"{bucket:02d}", "images": " ".join(buckets[bucket])}
-            for bucket in sorted(buckets)
+            {"id": f"{bucket:02d}", "images": " ".join(buckets.get(bucket, []))}
+            for bucket in bucket_ids
         ]
+    }
+
+
+def empty_sarif() -> dict:
+    return {
+        "version": "2.1.0",
+        "$schema": SARIF_SCHEMA,
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Trivy",
+                        "rules": [],
+                    }
+                },
+                "results": [],
+            }
+        ],
     }
 
 
@@ -157,6 +185,11 @@ def combine_sarif(documents: list[dict]) -> dict:
         "$schema": documents[0].get("$schema"),
         "runs": [combined],
     }
+
+
+def combine_sarif_files(files: list[Path]) -> dict:
+    documents = [json.loads(path.read_text(encoding="utf-8")) for path in files]
+    return combine_sarif(documents) if documents else empty_sarif()
 
 
 def exclusion_ids(root: Path, ref: str) -> list[str]:
@@ -263,31 +296,54 @@ def kics_plan(args: argparse.Namespace) -> None:
         print("No changed deployment YAML; KICS scan will be skipped")
 
 
+def image_scan_files(
+    event: str,
+    before: str,
+    base: str,
+    head: str,
+    scanners: str,
+    root: Path,
+) -> tuple[list[Path], bool]:
+    if event == "workflow_dispatch" and scanners not in {"all", "trivy"}:
+        return [], False
+    if event in {"schedule", "workflow_dispatch"}:
+        return all_deployment_files(root), True
+    if event == "pull_request":
+        return changed_deployment_files(base, head, root), False
+    if before and set(before) != {"0"}:
+        return changed_deployment_files(before, "HEAD", root), False
+    return all_deployment_files(root), True
+
+
 def plan(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
-    if args.event == "workflow_dispatch" and args.scanners not in {"all", "trivy"}:
-        files: list[Path] = []
-    elif args.event in {"schedule", "workflow_dispatch"}:
-        files = all_deployment_files(root)
-    elif args.event == "pull_request":
-        files = changed_deployment_files(args.base, args.head, root)
-    elif args.before and set(args.before) != {"0"}:
-        files = changed_deployment_files(args.before, "HEAD", root)
-    else:
-        files = all_deployment_files(root)
-
+    files, full_inventory = image_scan_files(
+        args.event,
+        args.before,
+        args.base,
+        args.head,
+        args.scanners,
+        root,
+    )
     images = images_from_files(files)
-    matrix = json.dumps(image_matrix(images), separators=(",", ":"))
+    matrix = json.dumps(
+        image_matrix(images, include_empty=full_inventory),
+        separators=(",", ":"),
+    )
     write_output("count", str(len(images)))
+    write_output("full_inventory", str(full_inventory).lower())
     write_output("matrix", matrix)
-    print(f"Planned {len(images)} image(s) across {len(json.loads(matrix)['include'])} job(s).")
+    scope = "full inventory" if full_inventory else "changed files"
+    print(
+        f"Planned {len(images)} image(s) from {scope} across "
+        f"{len(json.loads(matrix)['include'])} job(s)."
+    )
 
 
 def combine(args: argparse.Namespace) -> None:
     files = sorted(Path().glob(args.pattern))
-    documents = [json.loads(path.read_text(encoding="utf-8")) for path in files]
     Path(args.output).write_text(
-        json.dumps(combine_sarif(documents), separators=(",", ":")),
+        json.dumps(combine_sarif_files(files), separators=(",", ":")),
         encoding="utf-8",
     )
 

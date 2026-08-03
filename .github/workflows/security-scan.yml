@@ -475,7 +475,10 @@ jobs:
           fi
 
   # Resolve digest-pinned images to scan. Pushes and pull requests scan images
-  # from changed Compose files; schedules and manual Trivy runs scan all images.
+  # from changed Compose files for immediate feedback. Schedules and manual
+  # Trivy runs scan the full inventory and are the only runs that publish SARIF:
+  # GitHub treats each category as a complete snapshot, so a partial upload to a
+  # shared bucket could incorrectly close alerts for images omitted from it.
   image-scan-plan:
     name: Plan Container Image Scan
     runs-on: ubuntu-latest
@@ -483,6 +486,7 @@ jobs:
       contents: read
     outputs:
       count: ${{ steps.plan.outputs.count }}
+      full_inventory: ${{ steps.plan.outputs.full_inventory }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Checkout code
@@ -515,12 +519,13 @@ jobs:
   image-vulnerabilities:
     name: Container Image Scan (${{ matrix.id }})
     needs: image-scan-plan
-    if: needs.image-scan-plan.outputs.count != '0'
+    if: |
+      needs.image-scan-plan.outputs.count != '0' ||
+      needs.image-scan-plan.outputs.full_inventory == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -535,12 +540,8 @@ jobs:
           version: v0.73.0
           cache: true
 
-      - name: Install checksum-pinned KICS
-        run: >-
-          python3 .github/scripts/security_scan.py install-kics
-          --destination "$RUNNER_TEMP/kics"
-
       - name: Scan images
+        id: scan
         env:
           IMAGES: ${{ matrix.images }}
         run: |
@@ -550,37 +551,111 @@ jobs:
           for image in $IMAGES; do
             INDEX=$((INDEX + 1))
             echo "Scanning $image"
+            REPORT="trivy-image-results/image-${INDEX}.sarif"
             if ! trivy image \
               --scanners vuln \
               --ignore-unfixed \
               --severity HIGH,CRITICAL \
               --format sarif \
-              --output "trivy-image-results/image-${INDEX}.sarif" \
+              --output "$REPORT" \
               "$image"; then
               echo "::error::Trivy could not scan $image"
               ERRORS=$((ERRORS + 1))
+            elif [ ! -s "$REPORT" ]; then
+              echo "::error::Trivy did not produce SARIF for $image"
+              ERRORS=$((ERRORS + 1))
             fi
-            trivy clean --scan-cache
+            if ! trivy clean --scan-cache; then
+              echo "::warning::Trivy scan cache cleanup failed"
+            fi
           done
-          echo "SCAN_ERRORS=$ERRORS" >> "$GITHUB_ENV"
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
 
       - name: Combine image scan results
-        if: always() && hashFiles('trivy-image-results/image-*.sarif') != ''
+        id: combine
+        if: |
+          always() &&
+          steps.scan.outputs.errors == '0' && (
+            needs.image-scan-plan.outputs.full_inventory == 'true' ||
+            hashFiles('trivy-image-results/image-*.sarif') != ''
+          )
         run: |
           python3 .github/scripts/security_scan.py combine \
             --pattern 'trivy-image-results/image-*.sarif' \
             --output trivy-image-results/combined.sarif
 
+      - name: Summarize changed-image findings
+        if: |
+          always() &&
+          needs.image-scan-plan.outputs.full_inventory != 'true' &&
+          steps.combine.outcome == 'success'
+        run: |
+          COUNT=$(jq '[.runs[]?.results[]?] | length' trivy-image-results/combined.sarif)
+          {
+            echo "## Changed-image vulnerability scan"
+            echo
+            echo "Trivy found **${COUNT}** HIGH/CRITICAL result(s)."
+            echo "The authoritative code-scanning baseline updates only after a complete scan."
+            if [ "$COUNT" -gt 0 ]; then
+              echo
+              jq -r '
+                [.runs[]?.results[]? |
+                  {rule: .ruleId, detail: ((.message.text // "") | split("\n")[0])}] |
+                unique_by([.rule, .detail]) | .[:50][] |
+                "- **\(.rule)** — \(.detail)"
+              ' trivy-image-results/combined.sarif
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stage complete bucket SARIF
+        if: |
+          always() &&
+          needs.image-scan-plan.outputs.full_inventory == 'true' &&
+          steps.scan.outputs.errors == '0' &&
+          steps.combine.outcome == 'success' &&
+          hashFiles('trivy-image-results/combined.sarif') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-image-results-${{ matrix.id }}
+          path: trivy-image-results/combined.sarif
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Fail on scanner errors
+        if: always() && steps.scan.outputs.errors != '0'
+        run: exit 1
+
+  # Publish only after every full-inventory bucket has scanned successfully.
+  # This prevents any category from being replaced by an incomplete run when a
+  # different matrix job fails later.
+  image-vulnerability-publish:
+    name: Publish Container Image Scan (${{ matrix.id }})
+    needs: [image-scan-plan, image-vulnerabilities]
+    if: |
+      always() &&
+      needs.image-scan-plan.result == 'success' &&
+      needs.image-scan-plan.outputs.full_inventory == 'true' &&
+      needs.image-vulnerabilities.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.image-scan-plan.outputs.matrix) }}
+    steps:
+      - name: Download complete bucket SARIF
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: trivy-image-results-${{ matrix.id }}
+          path: trivy-image-results
+
       - name: Upload image results to GitHub code scanning
-        if: always() && hashFiles('trivy-image-results/combined.sarif') != ''
         uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4
         with:
           sarif_file: trivy-image-results/combined.sarif
           category: trivy-images-${{ matrix.id }}
-
-      - name: Fail on scanner errors
-        if: always() && env.SCAN_ERRORS != '0'
-        run: exit 1
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: Per-finding suppression PRs
@@ -696,7 +771,12 @@ jobs:
 
   notify:
     name: Notify
-    needs: [misconfig, vulnerabilities, image-scan-plan, image-vulnerabilities]
+    needs:
+      - misconfig
+      - vulnerabilities
+      - image-scan-plan
+      - image-vulnerabilities
+      - image-vulnerability-publish
     if: |
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'push')
@@ -711,8 +791,10 @@ jobs:
           if [ "${{ needs.misconfig.result }}" = "success" ] && \
              [ "${{ needs.vulnerabilities.result }}" = "success" ] && \
              [ "${{ needs.image-scan-plan.result }}" = "success" ] && \
-             { [ "${{ needs.image-vulnerabilities.result }}" = "success" ] || \
-               [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; }; then
+              { [ "${{ needs.image-vulnerabilities.result }}" = "success" ] || \
+                [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; } && \
+              { [ "${{ needs.image-vulnerability-publish.result }}" = "success" ] || \
+                [ "${{ needs.image-vulnerability-publish.result }}" = "skipped" ]; }; then
             curl -fsS --retry 3 "$HC_URL" > /dev/null || true
           else
             curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null || true

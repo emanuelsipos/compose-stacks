@@ -4,10 +4,11 @@ Secrets and deployment-specific values are supplied by Komodo and are not stored
 
 KICS and Checkov block new HIGH or CRITICAL misconfigurations. Trivy's
 filesystem scan also blocks HIGH or CRITICAL dependency findings. Container
-image findings are published to GitHub code scanning without failing the
-workflow; scanner errors still fail. Pushes and pull requests scan images from
-changed deployment YAML, including shared files and fragments, while the
-weekly and manual scans cover every image.
+image findings do not fail the workflow, while scanner errors do. Pushes and
+pull requests scan images from changed deployment YAML, including shared files
+and fragments, for immediate feedback. Weekly and manual scans cover every
+image when Trivy is selected and publish complete category snapshots to GitHub
+code scanning; partial scans never replace those authoritative results.
 
 ## Accepted risks
 
