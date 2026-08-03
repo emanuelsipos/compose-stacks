@@ -6,7 +6,8 @@ KICS and Checkov block new HIGH or CRITICAL misconfigurations. Trivy's
 filesystem scan also blocks HIGH or CRITICAL dependency findings. Container
 image findings are published to GitHub code scanning without failing the
 workflow; scanner errors still fail. Pushes and pull requests scan images from
-changed Compose files, while the weekly and manual scans cover every image.
+changed deployment YAML, including shared files and fragments, while the
+weekly and manual scans cover every image.
 
 ## Accepted risks
 

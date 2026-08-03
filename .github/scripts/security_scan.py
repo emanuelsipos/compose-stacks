@@ -12,11 +12,11 @@ import subprocess
 from pathlib import Path
 
 
-COMPOSE_NAMES = {"compose.yaml", "compose.yml"}
+DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
 
 
-def changed_compose_files(before: str, after: str, root: Path) -> list[Path]:
+def changed_deployment_files(before: str, after: str, root: Path) -> list[Path]:
     result = subprocess.run(
         [
             "git",
@@ -26,8 +26,9 @@ def changed_compose_files(before: str, after: str, root: Path) -> list[Path]:
             before,
             after,
             "--",
-            ":(glob)**/compose.yaml",
-            ":(glob)**/compose.yml",
+            ":(glob)**/*.yaml",
+            ":(glob)**/*.yml",
+            ":(exclude).github/**",
         ],
         cwd=root,
         check=True,
@@ -37,8 +38,14 @@ def changed_compose_files(before: str, after: str, root: Path) -> list[Path]:
     return [root / name for name in result.stdout.splitlines() if (root / name).is_file()]
 
 
-def all_compose_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*") if path.name in COMPOSE_NAMES)
+def all_deployment_files(root: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.suffix in DEPLOYMENT_SUFFIXES
+        and ".github" not in path.parts
+        and ".kics-exclude" not in path.parts
+    )
 
 
 def images_from_files(files: list[Path]) -> list[str]:
@@ -83,13 +90,13 @@ def plan(args: argparse.Namespace) -> None:
     if args.event == "workflow_dispatch" and args.scanners not in {"all", "trivy"}:
         files: list[Path] = []
     elif args.event in {"schedule", "workflow_dispatch"}:
-        files = all_compose_files(root)
+        files = all_deployment_files(root)
     elif args.event == "pull_request":
-        files = changed_compose_files(args.base, args.head, root)
+        files = changed_deployment_files(args.base, args.head, root)
     elif args.before and set(args.before) != {"0"}:
-        files = changed_compose_files(args.before, "HEAD", root)
+        files = changed_deployment_files(args.before, "HEAD", root)
     else:
-        files = all_compose_files(root)
+        files = all_deployment_files(root)
 
     images = images_from_files(files)
     matrix = json.dumps(image_matrix(images), separators=(",", ":"))
