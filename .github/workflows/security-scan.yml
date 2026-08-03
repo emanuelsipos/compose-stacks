@@ -173,23 +173,10 @@ jobs:
           category: checkov-github-actions
 
       # ── KICS ─────────────────────────────────────────────────────────────
-      # Run KICS directly via docker instead of the kics-github-action wrapper.
-      # The action builds a 2-stage Docker image on every invocation
-      # (FROM kics + FROM wolfi-base), adding 15-30 s of overhead with no
-      # benefit. Running the published image directly is functionally identical.
-      # Authenticate with Docker Hub before pulling KICS.
-      # Unauthenticated pulls are rate-limited to 100/6h per IP. The command's
-      # exit code is recorded so runtime failures cannot become green scans.
-      # Uses DOCKERHUB_USERNAME and DOCKERHUB_TOKEN when configured. Public
-      # repositories can otherwise pull anonymously within Docker Hub limits.
-      - name: Docker Hub login
-        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          echo "$DOCKERHUB_TOKEN" | \
-            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Install checksum-pinned KICS
+        run: >-
+          python3 .github/scripts/security_scan.py install-kics
+          --destination "$RUNNER_TEMP/kics"
 
       - name: Run KICS
         id: kics
@@ -206,7 +193,8 @@ jobs:
             --path "${{ steps.kics-path.outputs.path }}" \
             --formats json,sarif \
             --output kics-results \
-            --exclude-results "${{ steps.kics-exclude.outputs.list }}"
+            --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
+            --executable "$RUNNER_TEMP/kics"
           KICS_EXIT=$?
           set -e
           echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
@@ -549,14 +537,10 @@ jobs:
           version: v0.72.0
           cache: true
 
-      - name: Docker Hub login
-        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          echo "$DOCKERHUB_TOKEN" | \
-            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Install checksum-pinned KICS
+        run: >-
+          python3 .github/scripts/security_scan.py install-kics
+          --destination "$RUNNER_TEMP/kics"
 
       - name: Scan images
         env:
@@ -666,7 +650,8 @@ jobs:
             --formats json \
             --output kics-results \
             --exclude-severities medium,low,info \
-            --exclude-results "${{ steps.kics-exclude.outputs.list }}"
+            --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
+            --executable "$RUNNER_TEMP/kics"
 
       # One PR per finding. Closed-without-merge → permanently dismissed
       # unless --reopen is set (via the reopen_findings dispatch input).

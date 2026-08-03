@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import hashlib
+import io
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("security_scan.py")
@@ -100,7 +104,7 @@ class SecurityScanTests(unittest.TestCase):
 
         command = security_scan.kics_command(arguments, Path("/workspace"))
 
-        self.assertIn("checkmarx/kics:v2.1.20", command)
+        self.assertEqual(command[0], str(Path("kics").resolve()))
         self.assertEqual(
             command[-4:],
             ["--exclude-severities", "medium,low", "--exclude-results", "one,two"],
@@ -127,6 +131,37 @@ class SecurityScanTests(unittest.TestCase):
             values = security_scan.exclusion_ids(root, "HEAD")
 
             self.assertEqual(values, [similarity_id])
+
+    def test_install_kics_verifies_and_extracts_archive(self):
+        archive = io.BytesIO()
+        payload = b"kics binary"
+        with tarfile.open(fileobj=archive, mode="w:gz") as package:
+            member = tarfile.TarInfo("kics")
+            member.size = len(payload)
+            package.addfile(member, io.BytesIO(payload))
+        archive_bytes = archive.getvalue()
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "kics"
+            arguments = security_scan.parser().parse_args(
+                ["install-kics", "--destination", str(destination)]
+            )
+            with (
+                mock.patch.object(
+                    security_scan,
+                    "KICS_ARCHIVE_SHA256",
+                    hashlib.sha256(archive_bytes).hexdigest(),
+                ),
+                mock.patch.object(
+                    security_scan.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(archive_bytes),
+                ),
+            ):
+                security_scan.install_kics(arguments)
+
+            self.assertEqual(destination.read_bytes(), payload)
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o755)
 
 
 if __name__ == "__main__":
