@@ -154,6 +154,19 @@
         "docker-compose"
       ],
       "matchUpdateTypes": [
+        "patch"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/qbittorrent/docker-qbittorrent-nox"
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": [
+        "docker-compose"
+      ],
+      "matchUpdateTypes": [
         "minor",
         "patch"
       ],
@@ -240,7 +253,12 @@
         "ghcr.io/dictionarry-hub/profilarr-parser",
         "tecnativa/docker-socket-proxy",
         "slskd/slskd",
-        "/(.*/)?meilisearch$/"
+        "/(.*/)?meilisearch$/",
+        "gcr.io/zenika-hub/alpine-chrome",
+        "mickey3721/flareproxy",
+        "pgvector/pgvector",
+        "wangqiru/mercury-parser-api",
+        "wangqiru/opencc-api-server"
       ],
       "automerge": true,
       "automergeType": "pr"
