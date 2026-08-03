@@ -15,6 +15,13 @@ Images are pinned and updated by Renovate. CI runs Compose linting, secret detec
 
 Run `pre-commit install` to apply dclint fixes before each local commit. CI also opens an autofix PR when a push to `main` introduces a fixable lint issue.
 
+## Automation boundaries
+
+- Renovate updates pinned GitHub Actions, scanner tools, pre-commit packages, and container images. Major image updates remain manual unless a package-specific rule explicitly allows them.
+- A moving image channel is retained only when the publisher does not provide a suitable versioned equivalent. The digest remains pinned, so each commit is reproducible and Renovate can review digest changes.
+- Deployment is intentionally not performed by this repository's workflows. Initial host paths, devices, networks, secrets, and environment values remain deployment-time responsibilities.
+- The Bazarr, Plex, and Tautulli Git updater mounts must contain checkouts before use and be writable by `PUID:PGID`. Their containers become unhealthy when no checkout is found or a repository has not completed a successful fast-forward update within two hours.
+
 ## License
 
 [MIT](LICENSE)
