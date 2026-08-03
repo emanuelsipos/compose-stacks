@@ -142,7 +142,42 @@ class SecurityScanTests(unittest.TestCase):
     def test_image_bucket_mapping_is_stable(self):
         matrix = security_scan.image_matrix(["example/a:1"])
 
-        self.assertEqual(matrix["include"], [{"id": "14", "images": "example/a:1"}])
+        self.assertEqual(matrix["include"], [{"id": "04", "images": "example/a:1"}])
+
+    def test_image_bucket_ignores_tag_and_digest(self):
+        references = [
+            "ghcr.io/example/app:1@sha256:" + "a" * 64,
+            "ghcr.io/example/app:2@sha256:" + "b" * 64,
+        ]
+
+        matrix = security_scan.image_matrix(references)
+
+        self.assertEqual(len(matrix["include"]), 1)
+        self.assertEqual(matrix["include"][0]["images"].split(), references)
+
+    def test_canonical_image_repository(self):
+        self.assertEqual(
+            security_scan.canonical_image_repository(
+                "wangqiru/ttrss:nightly-2026-07-20@sha256:" + "a" * 64
+            ),
+            "docker.io/wangqiru/ttrss",
+        )
+        self.assertEqual(
+            security_scan.canonical_image_repository("nginx:1.29"),
+            "docker.io/library/nginx",
+        )
+        self.assertEqual(
+            security_scan.canonical_image_repository(
+                "ghcr.io/ente/server@sha256:" + "b" * 64
+            ),
+            "ghcr.io/ente/server",
+        )
+        self.assertEqual(
+            security_scan.canonical_image_repository(
+                "registry.example:5000/team/app:v2"
+            ),
+            "registry.example:5000/team/app",
+        )
 
     def test_image_scan_files_marks_complete_and_partial_inventories(self):
         root = Path("/workspace")
@@ -265,6 +300,115 @@ class SecurityScanTests(unittest.TestCase):
             1,
         )
         self.assertEqual(len(run["artifacts"]), 2)
+
+    def test_normalize_image_sarif_adds_stable_repository_identity(self):
+        document = {
+            "runs": [{
+                "tool": {"driver": {"name": "Trivy", "rules": [{"id": "CVE-1"}]}},
+                "properties": {"imageName": "old"},
+                "results": [{
+                    "ruleId": "CVE-1",
+                    "message": {
+                        "text": "Package: example-lib\nInstalled Version: 1.0"
+                    },
+                    "locations": [{
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": "example/app",
+                                "uriBaseId": "ROOTPATH",
+                            }
+                        }
+                    }],
+                }],
+            }]
+        }
+        first_reference = "ghcr.io/example/app:1@sha256:" + "a" * 64
+        second_reference = "ghcr.io/example/app:2@sha256:" + "b" * 64
+
+        first = security_scan.normalize_image_sarif(document, first_reference)
+        second = security_scan.normalize_image_sarif(document, second_reference)
+        first_run = first["runs"][0]
+        first_result = first_run["results"][0]
+        second_result = second["runs"][0]["results"][0]
+
+        self.assertEqual(
+            first_run["properties"],
+            {
+                "imageRepository": "ghcr.io/example/app",
+                "imageReference": first_reference,
+            },
+        )
+        self.assertEqual(
+            first_result["properties"]["imageRepository"],
+            "ghcr.io/example/app",
+        )
+        self.assertEqual(
+            first_result["locations"][0]["physicalLocation"]["artifactLocation"],
+            {"uri": "docker-image://ghcr.io/example/app/container"},
+        )
+        self.assertEqual(
+            first_result["partialFingerprints"],
+            second_result["partialFingerprints"],
+        )
+        self.assertEqual(
+            first_result["locations"],
+            second_result["locations"],
+        )
+
+    def test_combine_sarif_removes_single_image_run_properties(self):
+        combined = security_scan.combine_sarif([
+            {
+                "runs": [{
+                    "tool": {"driver": {"name": "Trivy", "rules": []}},
+                    "properties": {"imageName": "first"},
+                    "results": [],
+                }]
+            }
+        ])
+
+        self.assertNotIn("properties", combined["runs"][0])
+
+    def test_normalize_image_sarif_updates_indexed_artifacts(self):
+        document = {
+            "runs": [{
+                "tool": {"driver": {"name": "Trivy", "rules": []}},
+                "artifacts": [{
+                    "location": {
+                        "uri": "usr/bin/example",
+                        "uriBaseId": "ROOTPATH",
+                    }
+                }],
+                "results": [{
+                    "ruleId": "CVE-1",
+                    "message": {"text": "Package: example-lib"},
+                    "locations": [{
+                        "physicalLocation": {
+                            "artifactLocation": {"index": 0}
+                        }
+                    }],
+                }],
+            }]
+        }
+
+        normalized = security_scan.normalize_image_sarif(
+            document,
+            "registry.example:5000/team/app:1",
+        )
+        run = normalized["runs"][0]
+
+        self.assertEqual(
+            run["artifacts"][0]["location"],
+            {
+                "uri": (
+                    "docker-image://registry.example:5000/"
+                    "team/app/usr/bin/example"
+                )
+            },
+        )
+        self.assertIn(
+            "primaryLocationLineHash",
+            run["results"][0]["partialFingerprints"],
+        )
 
     def test_combine_sarif_rejects_empty_input(self):
         with self.assertRaises(ValueError):
