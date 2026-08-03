@@ -97,20 +97,7 @@ jobs:
           # Fetch only the .kics-exclude/ tree from origin/main so we always
           # have the current set of suppressions regardless of branch age.
           git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
-          EXCLUDE_DIR=$(git show origin/main:.kics-exclude 2>/dev/null || echo "")
-          if [ -n "$EXCLUDE_DIR" ]; then
-            LIST=""
-            while IFS= read -r f; do
-              sim=$(git show "origin/main:$f" 2>/dev/null | head -1 | tr -d '[:space:]')
-              [ -n "$sim" ] && LIST="${LIST:+$LIST,}$sim"
-            done < <(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null)
-            echo "list=$LIST" >> "$GITHUB_OUTPUT"
-            COUNT=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null | wc -l)
-            echo "  $COUNT exclusion(s) loaded from origin/main"
-          else
-            echo "list=" >> "$GITHUB_OUTPUT"
-            echo "  no .kics-exclude/ files found on origin/main"
-          fi
+          python3 .github/scripts/security_scan.py exclusions
 
       # ── Resolve which files changed (PR only) ──────────────────────────
       - name: Get changed Compose inputs
@@ -214,23 +201,12 @@ jobs:
             inputs.scanners == 'kics'
           )
         run: |
-          EXCLUDE_ARGS=""
-          if [ -n "${{ steps.kics-exclude.outputs.list }}" ]; then
-            EXCLUDE_ARGS="--exclude-results ${{ steps.kics-exclude.outputs.list }}"
-          fi
-          mkdir -p kics-results
           set +e
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/scan" \
-            -w /scan \
-            checkmarx/kics:v2.1.20 scan \
-            -p "${{ steps.kics-path.outputs.path }}" \
-            --config kics-config.yaml \
-            --report-formats json,sarif \
-            -o kics-results \
-            -e .git,.cache,.github \
-            --ignore-on-exit all \
-            $EXCLUDE_ARGS
+          python3 .github/scripts/security_scan.py kics \
+            --path "${{ steps.kics-path.outputs.path }}" \
+            --formats json,sarif \
+            --output kics-results \
+            --exclude-results "${{ steps.kics-exclude.outputs.list }}"
           KICS_EXIT=$?
           set -e
           echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
@@ -670,20 +646,7 @@ jobs:
         id: kics-exclude
         run: |
           git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
-          EXCLUDE_DIR=$(git show origin/main:.kics-exclude 2>/dev/null || echo "")
-          if [ -n "$EXCLUDE_DIR" ]; then
-            LIST=""
-            while IFS= read -r f; do
-              sim=$(git show "origin/main:$f" 2>/dev/null | head -1 | tr -d '[:space:]')
-              [ -n "$sim" ] && LIST="${LIST:+$LIST,}$sim"
-            done < <(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null)
-            echo "list=$LIST" >> "$GITHUB_OUTPUT"
-            COUNT=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null | wc -l)
-            echo "  $COUNT exclusion(s) loaded from origin/main"
-          else
-            echo "list=" >> "$GITHUB_OUTPUT"
-            echo "  no .kics-exclude/ files found on origin/main"
-          fi
+          python3 .github/scripts/security_scan.py exclusions
       - name: Docker Hub login
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         env:
@@ -698,23 +661,12 @@ jobs:
       # Runs KICS directly via docker (no wrapper image build overhead).
       - name: Run KICS (full scan)
         run: |
-          EXCLUDE_ARGS=""
-          if [ -n "${{ steps.kics-exclude.outputs.list }}" ]; then
-            EXCLUDE_ARGS="--exclude-results ${{ steps.kics-exclude.outputs.list }}"
-          fi
-          mkdir -p kics-results
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/scan" \
-            -w /scan \
-            checkmarx/kics:v2.1.20 scan \
-            -p . \
-            --config kics-config.yaml \
-            --report-formats json \
-            -o kics-results \
-            -e .git,.cache,.github \
+          python3 .github/scripts/security_scan.py kics \
+            --path . \
+            --formats json \
+            --output kics-results \
             --exclude-severities medium,low,info \
-            --ignore-on-exit all \
-            $EXCLUDE_ARGS
+            --exclude-results "${{ steps.kics-exclude.outputs.list }}"
 
       # One PR per finding. Closed-without-merge → permanently dismissed
       # unless --reopen is set (via the reopen_findings dispatch input).

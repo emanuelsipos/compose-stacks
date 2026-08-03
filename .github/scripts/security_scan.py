@@ -14,6 +14,8 @@ from pathlib import Path
 
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
 IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
+SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
+DEFAULT_KICS_IMAGE = "checkmarx/kics:v2.1.20"
 
 
 def changed_deployment_files(before: str, after: str, root: Path) -> list[Path]:
@@ -80,6 +82,60 @@ def combine_sarif(documents: list[dict]) -> dict:
     }
 
 
+def exclusion_ids(root: Path, ref: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", ref, "--", ".kics-exclude/"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    exclusions: list[str] = []
+    for name in result.stdout.splitlines():
+        content = subprocess.run(
+            ["git", "show", f"{ref}:{name}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        similarity_id = content.splitlines()[0].strip()
+        if SIMILARITY_ID.fullmatch(similarity_id):
+            exclusions.append(similarity_id)
+    return exclusions
+
+
+def kics_command(args: argparse.Namespace, root: Path) -> list[str]:
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{root}:/scan",
+        "-w",
+        "/scan",
+        args.image,
+        "scan",
+        "-p",
+        args.path,
+        "--config",
+        "kics-config.yaml",
+        "--report-formats",
+        args.formats,
+        "-o",
+        args.output,
+        "-e",
+        ".git,.cache,.github",
+        "--ignore-on-exit",
+        "all",
+    ]
+    if args.exclude_severities:
+        command.extend(["--exclude-severities", args.exclude_severities])
+    if args.exclude_results:
+        command.extend(["--exclude-results", args.exclude_results])
+    return command
+
+
 def write_output(name: str, value: str) -> None:
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"{name}={value}\n")
@@ -114,6 +170,19 @@ def combine(args: argparse.Namespace) -> None:
     )
 
 
+def exclusions(args: argparse.Namespace) -> None:
+    values = exclusion_ids(Path(args.root).resolve(), args.ref)
+    write_output("list", ",".join(values))
+    print(f"Loaded {len(values)} exclusion(s) from {args.ref}")
+
+
+def kics(args: argparse.Namespace) -> None:
+    root = Path(args.root).resolve()
+    Path(args.output).mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(kics_command(args, root), cwd=root, check=False)
+    raise SystemExit(result.returncode)
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser()
     commands = root.add_subparsers(required=True)
@@ -131,6 +200,21 @@ def parser() -> argparse.ArgumentParser:
     combine_parser.add_argument("--pattern", required=True)
     combine_parser.add_argument("--output", required=True)
     combine_parser.set_defaults(func=combine)
+
+    exclusions_parser = commands.add_parser("exclusions")
+    exclusions_parser.add_argument("--ref", default="origin/main")
+    exclusions_parser.add_argument("--root", default=".")
+    exclusions_parser.set_defaults(func=exclusions)
+
+    kics_parser = commands.add_parser("kics")
+    kics_parser.add_argument("--path", required=True)
+    kics_parser.add_argument("--formats", required=True)
+    kics_parser.add_argument("--output", required=True)
+    kics_parser.add_argument("--exclude-results", default="")
+    kics_parser.add_argument("--exclude-severities", default="")
+    kics_parser.add_argument("--image", default=DEFAULT_KICS_IMAGE)
+    kics_parser.add_argument("--root", default=".")
+    kics_parser.set_defaults(func=kics)
     return root
 
 
