@@ -327,9 +327,14 @@ class SecurityScanTests(unittest.TestCase):
 
         first = security_scan.normalize_image_sarif(document, first_reference)
         second = security_scan.normalize_image_sarif(document, second_reference)
+        other_repository = security_scan.normalize_image_sarif(
+            document,
+            "ghcr.io/example/other:1@sha256:" + "c" * 64,
+        )
         first_run = first["runs"][0]
         first_result = first_run["results"][0]
         second_result = second["runs"][0]["results"][0]
+        other_result = other_repository["runs"][0]["results"][0]
 
         self.assertEqual(
             first_run["properties"],
@@ -343,6 +348,10 @@ class SecurityScanTests(unittest.TestCase):
             "ghcr.io/example/app",
         )
         self.assertEqual(
+            first_result["properties"]["imageTarget"],
+            "example/app",
+        )
+        self.assertEqual(
             first_result["locations"][0]["physicalLocation"]["artifactLocation"],
             {"uri": "docker-image://ghcr.io/example/app/container"},
         )
@@ -353,6 +362,10 @@ class SecurityScanTests(unittest.TestCase):
         self.assertEqual(
             first_result["locations"],
             second_result["locations"],
+        )
+        self.assertNotEqual(
+            first_result["partialFingerprints"],
+            other_result["partialFingerprints"],
         )
 
     def test_combine_sarif_removes_single_image_run_properties(self):
@@ -401,13 +414,53 @@ class SecurityScanTests(unittest.TestCase):
             {
                 "uri": (
                     "docker-image://registry.example:5000/"
-                    "team/app/usr/bin/example"
+                    "team/app/container"
                 )
             },
+        )
+        self.assertEqual(
+            run["results"][0]["properties"]["imageTarget"],
+            "usr/bin/example",
         )
         self.assertIn(
             "primaryLocationLineHash",
             run["results"][0]["partialFingerprints"],
+        )
+
+    def test_normalize_image_sarif_ignores_scanner_target_for_identity(self):
+        def document(target):
+            return {
+                "runs": [{
+                    "tool": {"driver": {"name": "Trivy", "rules": []}},
+                    "results": [{
+                        "ruleId": "CVE-1",
+                        "message": {"text": "Package: example-lib"},
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": target}
+                            }
+                        }],
+                    }],
+                }]
+            }
+
+        first = security_scan.normalize_image_sarif(
+            document("alpine-3.22"),
+            "ghcr.io/example/app:1@sha256:" + "a" * 64,
+        )["runs"][0]["results"][0]
+        second = security_scan.normalize_image_sarif(
+            document("alpine-3.23"),
+            "ghcr.io/example/app:2@sha256:" + "b" * 64,
+        )["runs"][0]["results"][0]
+
+        self.assertEqual(first["locations"], second["locations"])
+        self.assertEqual(
+            first["partialFingerprints"],
+            second["partialFingerprints"],
+        )
+        self.assertNotEqual(
+            first["properties"]["imageTarget"],
+            second["properties"]["imageTarget"],
         )
 
     def test_combine_sarif_rejects_empty_input(self):

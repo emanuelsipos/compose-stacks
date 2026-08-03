@@ -154,17 +154,13 @@ def empty_sarif() -> dict:
 def normalize_image_sarif(document: dict, image: str) -> dict:
     normalized = copy.deepcopy(document)
     repository = canonical_image_repository(image)
-    repository_path = repository.split("/", 1)[-1]
 
     def normalize_uri(uri: str) -> tuple[str, str]:
         prefix = f"docker-image://{repository}/"
         if uri.startswith(prefix):
             return uri, urllib.parse.unquote(uri.removeprefix(prefix))
         target = uri.lstrip("/")
-        if target in {repository, repository_path}:
-            target = "container"
-        quoted_target = urllib.parse.quote(target, safe="/:@")
-        return f"{prefix}{quoted_target}", target
+        return f"{prefix}container", target
 
     for run in normalized.get("runs", []):
         run["properties"] = {
@@ -210,18 +206,19 @@ def normalize_image_sarif(document: dict, image: str) -> dict:
 
             normalize_result_locations(result)
             target = result_targets[0] if result_targets else ""
+            if target:
+                properties["imageTarget"] = target
 
             message = result.get("message", {}).get("text", "")
             package_match = PACKAGE_LINE.search(message)
             rule_id = result.get("ruleId")
-            if package_match and rule_id and target:
+            if package_match and rule_id:
                 identity = "\0".join(
                     [
                         "trivy-container-v1",
                         repository,
                         rule_id,
                         package_match.group(1).strip(),
-                        target,
                     ]
                 )
                 result.setdefault("partialFingerprints", {})[
