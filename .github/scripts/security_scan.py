@@ -122,6 +122,10 @@ def kics_command(args: argparse.Namespace, root: Path) -> list[str]:
         args.path,
         "--config",
         "kics-config.yaml",
+        "--queries-path",
+        args.queries,
+        "--libraries-path",
+        args.libraries,
         "--report-formats",
         args.formats,
         "-o",
@@ -233,6 +237,8 @@ def parser() -> argparse.ArgumentParser:
     kics_parser.add_argument("--path", required=True)
     kics_parser.add_argument("--formats", required=True)
     kics_parser.add_argument("--output", required=True)
+    kics_parser.add_argument("--queries", required=True)
+    kics_parser.add_argument("--libraries", required=True)
     kics_parser.add_argument("--exclude-results", default="")
     kics_parser.add_argument("--exclude-severities", default="")
     kics_parser.add_argument("--executable", default="kics")

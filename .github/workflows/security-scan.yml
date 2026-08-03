@@ -173,6 +173,13 @@ jobs:
           category: checkov-github-actions
 
       # ── KICS ─────────────────────────────────────────────────────────────
+      - name: Checkout pinned KICS queries
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Checkmarx/kics
+          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
+          path: .cache/kics-source
+
       - name: Install checksum-pinned KICS
         run: >-
           python3 .github/scripts/security_scan.py install-kics
@@ -193,6 +200,8 @@ jobs:
             --path "${{ steps.kics-path.outputs.path }}" \
             --formats json,sarif \
             --output kics-results \
+            --queries .cache/kics-source/assets/queries \
+            --libraries .cache/kics-source/assets/libraries \
             --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
             --executable "$RUNNER_TEMP/kics"
           KICS_EXIT=$?
@@ -631,24 +640,29 @@ jobs:
         run: |
           git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
           python3 .github/scripts/security_scan.py exclusions
-      - name: Docker Hub login
-        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          echo "$DOCKERHUB_TOKEN" | \
-            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Checkout pinned KICS queries
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Checkmarx/kics
+          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
+          path: .cache/kics-source
+
+      - name: Install checksum-pinned KICS
+        run: >-
+          python3 .github/scripts/security_scan.py install-kics
+          --destination "$RUNNER_TEMP/kics"
 
       # Full scan — not scoped to changed files; catches anything on main.
       # --exclude-severities medium,low,info — only open PRs for HIGH/CRITICAL.
-      # Runs KICS directly via docker (no wrapper image build overhead).
       - name: Run KICS (full scan)
         run: |
           python3 .github/scripts/security_scan.py kics \
             --path . \
             --formats json \
             --output kics-results \
+            --queries .cache/kics-source/assets/queries \
+            --libraries .cache/kics-source/assets/libraries \
             --exclude-severities medium,low,info \
             --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
             --executable "$RUNNER_TEMP/kics"
