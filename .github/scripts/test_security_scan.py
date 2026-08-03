@@ -113,19 +113,71 @@ class SecurityScanTests(unittest.TestCase):
         self.assertEqual(sorted(images), ["example/a:1", "example/b:2"])
         self.assertTrue(all(len(item["id"]) == 2 for item in matrix["include"]))
 
-    def test_combine_sarif_preserves_every_run(self):
+    def test_combine_sarif_merges_runs_and_remaps_indices(self):
         combined = security_scan.combine_sarif(
             [
-                {"$schema": "schema", "runs": [{"id": "first"}]},
-                {"$schema": "schema", "runs": [{"id": "second"}]},
+                {
+                    "$schema": "schema",
+                    "runs": [{
+                        "tool": {"driver": {"name": "Trivy", "rules": [{"id": "A"}]}},
+                        "artifacts": [{"location": {"uri": "first"}}],
+                        "results": [{
+                            "ruleId": "A",
+                            "ruleIndex": 0,
+                            "locations": [{
+                                "physicalLocation": {"artifactLocation": {"index": 0}}
+                            }],
+                        }],
+                    }],
+                },
+                {
+                    "$schema": "schema",
+                    "runs": [{
+                        "tool": {
+                            "driver": {
+                                "name": "Trivy",
+                                "rules": [{"id": "B"}, {"id": "A"}],
+                            }
+                        },
+                        "artifacts": [{"location": {"uri": "second"}}],
+                        "results": [
+                            {
+                                "ruleId": "B",
+                                "ruleIndex": 0,
+                                "locations": [{
+                                    "physicalLocation": {
+                                        "artifactLocation": {"index": 0}
+                                    }
+                                }],
+                            },
+                            {"ruleId": "A", "ruleIndex": 1},
+                        ],
+                    }],
+                },
             ]
         )
+
         self.assertEqual(combined["$schema"], "schema")
-        self.assertEqual(combined["runs"], [{"id": "first"}, {"id": "second"}])
+        self.assertEqual(len(combined["runs"]), 1)
+        run = combined["runs"][0]
+        self.assertEqual(
+            [rule["id"] for rule in run["tool"]["driver"]["rules"]], ["A", "B"]
+        )
+        self.assertEqual(
+            [result["ruleIndex"] for result in run["results"]], [0, 1, 0]
+        )
+        self.assertEqual(
+            run["results"][1]["locations"][0]["physicalLocation"]
+            ["artifactLocation"]["index"],
+            1,
+        )
+        self.assertEqual(len(run["artifacts"]), 2)
 
     def test_combine_sarif_rejects_empty_input(self):
         with self.assertRaises(ValueError):
             security_scan.combine_sarif([])
+        with self.assertRaises(ValueError):
+            security_scan.combine_sarif([{"runs": []}])
 
     def test_kics_command_adds_optional_filters(self):
         arguments = security_scan.parser().parse_args(

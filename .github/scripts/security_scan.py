@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import io
 import json
@@ -101,12 +102,60 @@ def image_matrix(images: list[str], bucket_count: int = 16) -> dict[str, list[di
 
 
 def combine_sarif(documents: list[dict]) -> dict:
-    if not documents:
-        raise ValueError("at least one SARIF document is required")
+    runs = [run for document in documents for run in document.get("runs", [])]
+    if not runs:
+        raise ValueError("at least one SARIF run is required")
+
+    combined = copy.deepcopy(runs[0])
+    driver = combined.setdefault("tool", {}).setdefault("driver", {})
+    combined_rules: list[dict] = []
+    rule_indices: dict[str, int] = {}
+    combined_results: list[dict] = []
+    combined_artifacts: list[dict] = []
+
+    def remap_artifacts(value: object, offset: int) -> None:
+        if isinstance(value, dict):
+            artifact = value.get("artifactLocation")
+            if isinstance(artifact, dict) and isinstance(artifact.get("index"), int):
+                artifact["index"] += offset
+            for child in value.values():
+                remap_artifacts(child, offset)
+        elif isinstance(value, list):
+            for child in value:
+                remap_artifacts(child, offset)
+
+    for run in runs:
+        local_rules = run.get("tool", {}).get("driver", {}).get("rules", [])
+        local_rule_indices: dict[int, int] = {}
+        for local_index, rule in enumerate(local_rules):
+            rule_key = rule.get("id") or json.dumps(rule, sort_keys=True)
+            if rule_key not in rule_indices:
+                rule_indices[rule_key] = len(combined_rules)
+                combined_rules.append(copy.deepcopy(rule))
+            local_rule_indices[local_index] = rule_indices[rule_key]
+
+        artifact_offset = len(combined_artifacts)
+        combined_artifacts.extend(copy.deepcopy(run.get("artifacts", [])))
+        for result in copy.deepcopy(run.get("results", [])):
+            local_rule_index = result.get("ruleIndex")
+            if local_rule_index in local_rule_indices:
+                result["ruleIndex"] = local_rule_indices[local_rule_index]
+            elif result.get("ruleId") in rule_indices:
+                result["ruleIndex"] = rule_indices[result["ruleId"]]
+            remap_artifacts(result, artifact_offset)
+            combined_results.append(result)
+
+    driver["rules"] = combined_rules
+    combined["results"] = combined_results
+    if combined_artifacts:
+        combined["artifacts"] = combined_artifacts
+    else:
+        combined.pop("artifacts", None)
+
     return {
         "version": "2.1.0",
         "$schema": documents[0].get("$schema"),
-        "runs": [run for document in documents for run in document.get("runs", [])],
+        "runs": [combined],
     }
 
 
