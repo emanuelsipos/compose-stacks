@@ -3,6 +3,7 @@
 import importlib.util
 import hashlib
 import io
+import json
 import subprocess
 import tarfile
 import tempfile
@@ -229,6 +230,23 @@ class SecurityScanTests(unittest.TestCase):
             values = security_scan.exclusion_ids(root, "HEAD")
 
             self.assertEqual(values, [similarity_id])
+
+    def test_kics_renovate_group_requires_queries_and_binary(self):
+        config = json.loads((SCRIPT.parents[2] / "renovate.json").read_text())
+        kics_rule = next(
+            rule
+            for rule in config["packageRules"]
+            if rule.get("groupName") == "kics"
+        )
+
+        self.assertEqual(
+            kics_rule["minimumGroupSize"],
+            security_scan.KICS_QUERY_REF_COUNT + 1,
+        )
+        self.assertEqual(
+            set(kics_rule["matchDepNames"]),
+            {"Checkmarx/kics", "Checkmarx/kics (linux_amd64 archive)"},
+        )
 
     def test_verify_kics_pins_accepts_matching_versions(self):
         checkout = (
