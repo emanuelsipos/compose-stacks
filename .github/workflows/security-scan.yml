@@ -161,7 +161,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Checkmarx/kics
-          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
+          ref: 3778c88b04d04c861c98234069010930079176c3 # v2.1.21
           path: .cache/kics-source
 
       - name: Install checksum-pinned KICS
@@ -637,7 +637,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Checkmarx/kics
-          ref: e1f23cad9640f55b963f22a116b04906b8c16ac6 # v2.1.20
+          ref: 3778c88b04d04c861c98234069010930079176c3 # v2.1.21
           path: .cache/kics-source
 
       - name: Install checksum-pinned KICS
