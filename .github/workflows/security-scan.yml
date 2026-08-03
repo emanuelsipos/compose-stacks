@@ -102,16 +102,21 @@ jobs:
           git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
           python3 .github/scripts/security_scan.py exclusions
 
-      # ── Resolve which files changed (PR only) ──────────────────────────
-      - name: Get changed Compose inputs
-        id: changed
-        if: github.event_name == 'pull_request'
-        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
-        with:
-          files: |
-            **/compose.yaml
-            **/compose.yml
-            _common/base.yaml
+      # Resolve the KICS scan path from git rather than interpolating
+      # pull-request-controlled filenames into shell source. PRs scan every
+      # changed deployment YAML file, including Compose fragments. Other
+      # triggers scan the full repository.
+      - name: Resolve KICS scan path
+        id: kics-path
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/security_scan.py kics-plan
+          --event "$EVENT_NAME"
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
 
       - name: Get changed workflow files
         id: workflow-changed
@@ -120,30 +125,6 @@ jobs:
         with:
           files: |
             .github/workflows/**
-
-      # Build the KICS scan path:
-      #   PR + Compose inputs changed → comma-separated list of changed files
-      #   PR + no relevant changes    → skip KICS entirely (flag via output)
-      #   push/schedule/dispatch      → scan everything
-      - name: Resolve KICS scan path
-        id: kics-path
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            INPUTS=$(echo "${{ steps.changed.outputs.all_changed_files }}" \
-              | tr ' ' '\n' \
-              | grep -E '(compose\.ya?ml|_common/base\.yaml)$' \
-              | tr '\n' ',' \
-              | sed 's/,$//')
-            if [ -z "$INPUTS" ]; then
-              echo "skip=true"  >> "$GITHUB_OUTPUT"
-            else
-              echo "skip=false" >> "$GITHUB_OUTPUT"
-              echo "path=$INPUTS" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "path=."     >> "$GITHUB_OUTPUT"
-          fi
 
       # ── Checkov ──────────────────────────────────────────────────────────
       # On workflow_dispatch, the `scanners` input gates whether this runs.
@@ -197,10 +178,12 @@ jobs:
             inputs.scanners == 'all' ||
             inputs.scanners == 'kics'
           )
+        env:
+          KICS_PATH: ${{ steps.kics-path.outputs.path }}
         run: |
           set +e
           python3 .github/scripts/security_scan.py kics \
-            --path "${{ steps.kics-path.outputs.path }}" \
+            --path "$KICS_PATH" \
             --formats json,sarif \
             --output kics-results \
             --queries .cache/kics-source/assets/queries \

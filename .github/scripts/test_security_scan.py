@@ -65,6 +65,48 @@ class SecurityScanTests(unittest.TestCase):
 
             self.assertEqual(files, [shared])
 
+    def test_kics_scan_path_includes_fragments(self):
+        root = Path("/workspace")
+        with mock.patch.object(
+            security_scan,
+            "changed_deployment_files",
+            return_value=[
+                root / "jupiter/immich/hwaccel.transcoding.yaml",
+                root / "jupiter/qbittorrent/gluetun.yaml",
+            ],
+        ):
+            path = security_scan.kics_scan_path(
+                "pull_request", "base", "head", root
+            )
+
+        self.assertEqual(
+            path,
+            "jupiter/immich/hwaccel.transcoding.yaml,"
+            "jupiter/qbittorrent/gluetun.yaml",
+        )
+
+    def test_kics_scan_path_skips_pr_without_deployment_yaml(self):
+        with mock.patch.object(
+            security_scan, "changed_deployment_files", return_value=[]
+        ):
+            path = security_scan.kics_scan_path(
+                "pull_request", "base", "head", Path("/workspace")
+            )
+
+        self.assertIsNone(path)
+
+    def test_kics_scan_path_rejects_ambiguous_filename(self):
+        root = Path("/workspace")
+        with mock.patch.object(
+            security_scan,
+            "changed_deployment_files",
+            return_value=[root / "stack/fragment,extra.yaml"],
+        ):
+            with self.assertRaisesRegex(SystemExit, "commas or newlines"):
+                security_scan.kics_scan_path(
+                    "pull_request", "base", "head", root
+                )
+
     def test_image_matrix_is_stable_and_deduplicated(self):
         matrix = security_scan.image_matrix(["example/a:1", "example/a:1", "example/b:2"])
         images = " ".join(item["images"] for item in matrix["include"]).split()

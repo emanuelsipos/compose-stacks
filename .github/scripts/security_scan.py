@@ -37,6 +37,7 @@ def changed_deployment_files(before: str, after: str, root: Path) -> list[Path]:
             "git",
             "diff",
             "--name-only",
+            "-z",
             "--diff-filter=ACMR",
             before,
             after,
@@ -48,9 +49,13 @@ def changed_deployment_files(before: str, after: str, root: Path) -> list[Path]:
         cwd=root,
         check=True,
         capture_output=True,
-        text=True,
     )
-    return [root / name for name in result.stdout.splitlines() if (root / name).is_file()]
+    names = [
+        name.decode(errors="surrogateescape")
+        for name in result.stdout.split(b"\0")
+        if name
+    ]
+    return [root / name for name in names if (root / name).is_file()]
 
 
 def all_deployment_files(root: Path) -> list[Path]:
@@ -61,6 +66,16 @@ def all_deployment_files(root: Path) -> list[Path]:
         and ".github" not in path.parts
         and ".kics-exclude" not in path.parts
     )
+
+
+def kics_scan_path(event: str, base: str, head: str, root: Path) -> str | None:
+    if event != "pull_request":
+        return "."
+    files = changed_deployment_files(base, head, root)
+    relative_paths = [path.relative_to(root).as_posix() for path in files]
+    if any("," in name or "\n" in name for name in relative_paths):
+        raise SystemExit("KICS scan paths cannot contain commas or newlines")
+    return ",".join(relative_paths) or None
 
 
 def images_from_files(files: list[Path]) -> list[str]:
@@ -189,6 +204,16 @@ def write_output(name: str, value: str) -> None:
         output.write(f"{name}={value}\n")
 
 
+def kics_plan(args: argparse.Namespace) -> None:
+    path = kics_scan_path(args.event, args.base, args.head, Path(args.root).resolve())
+    write_output("skip", "false" if path else "true")
+    if path:
+        write_output("path", path)
+        print(f"KICS will scan {path}")
+    else:
+        print("No changed deployment YAML; KICS scan will be skipped")
+
+
 def plan(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     if args.event == "workflow_dispatch" and args.scanners not in {"all", "trivy"}:
@@ -234,6 +259,13 @@ def kics(args: argparse.Namespace) -> None:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser()
     commands = root.add_subparsers(required=True)
+
+    kics_plan_parser = commands.add_parser("kics-plan")
+    kics_plan_parser.add_argument("--event", required=True)
+    kics_plan_parser.add_argument("--base", default="")
+    kics_plan_parser.add_argument("--head", default="")
+    kics_plan_parser.add_argument("--root", default=".")
+    kics_plan_parser.set_defaults(func=kics_plan)
 
     plan_parser = commands.add_parser("plan")
     plan_parser.add_argument("--event", required=True)
