@@ -300,7 +300,7 @@
         "Checkmarx/kics",
         "Checkmarx/kics (linux_amd64 archive)"
       ],
-      "minimumGroupSize": 2
+      "minimumGroupSize": 3
     },
     {
       "matchManagers": [
