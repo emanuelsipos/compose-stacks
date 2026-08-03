@@ -1,7 +1,7 @@
 ---
 services:
   birdnet-go:
-    image: ghcr.io/tphakala/birdnet-go:nightly-20260322@sha256:dd2dae90ec7b6fc228d79332cfcf0c4ac281609f34c9e50a9ef644e67f00f481
+    image: ghcr.io/tphakala/birdnet-go:20260716@sha256:b6382049967374b49a62ada386a6551efc3806a56c77934cd1bdf300d5c55878
     container_name: birdnet-go
     volumes:
       - /opt/docker/birdnet/config/:/config/
