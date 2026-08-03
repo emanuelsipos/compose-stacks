@@ -81,6 +81,53 @@ class SecurityScanTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             security_scan.combine_sarif([])
 
+    def test_kics_command_adds_optional_filters(self):
+        arguments = security_scan.parser().parse_args(
+            [
+                "kics",
+                "--path",
+                ".",
+                "--formats",
+                "json,sarif",
+                "--output",
+                "results",
+                "--exclude-results",
+                "one,two",
+                "--exclude-severities",
+                "medium,low",
+            ]
+        )
+
+        command = security_scan.kics_command(arguments, Path("/workspace"))
+
+        self.assertIn("checkmarx/kics:v2.1.20", command)
+        self.assertEqual(
+            command[-4:],
+            ["--exclude-severities", "medium,low", "--exclude-results", "one,two"],
+        )
+
+    def test_exclusion_ids_ignore_documentation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            (exclusions / "README.md").write_text("# Documentation\n")
+            similarity_id = "a" * 64
+            (exclusions / "HIGH_finding").write_text(f"{similarity_id}\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+
+            values = security_scan.exclusion_ids(root, "HEAD")
+
+            self.assertEqual(values, [similarity_id])
+
 
 if __name__ == "__main__":
     unittest.main()
