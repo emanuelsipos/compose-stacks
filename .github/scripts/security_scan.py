@@ -156,7 +156,7 @@ def normalize_image_sarif(document: dict, image: str) -> dict:
     repository = canonical_image_repository(image)
 
     def normalize_uri(uri: str) -> tuple[str, str]:
-        prefix = f"docker-image://{repository}/"
+        prefix = f"container-images/{repository}/"
         if uri.startswith(prefix):
             return uri, urllib.parse.unquote(uri.removeprefix(prefix))
         target = uri.lstrip("/")
