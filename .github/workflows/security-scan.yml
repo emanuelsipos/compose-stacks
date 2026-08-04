@@ -151,7 +151,7 @@ jobs:
 
       - name: Upload Checkov results to GitHub code scanning
         if: always() && hashFiles('checkov-results/results_sarif.sarif') != ''
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: checkov-results/results_sarif.sarif
           category: checkov-github-actions
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload KICS results to GitHub code scanning
         if: always() && hashFiles('kics-results/results.filtered.sarif') != ''
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: kics-results/results.filtered.sarif
           category: kics-compose
@@ -419,7 +419,7 @@ jobs:
 
       - name: Upload Trivy results to GitHub code scanning
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-filesystem
@@ -661,7 +661,7 @@ jobs:
           path: trivy-image-results
 
       - name: Upload image results to GitHub code scanning
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: trivy-image-results/combined.sarif
           category: trivy-images-${{ matrix.id }}
