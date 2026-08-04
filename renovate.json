@@ -16,6 +16,7 @@
   "configMigration": true,
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
+  "rebaseWhen": "conflicted",
   "packageRules": [
     {
       "matchManagers": [
