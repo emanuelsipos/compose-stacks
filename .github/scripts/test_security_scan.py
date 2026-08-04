@@ -353,7 +353,7 @@ class SecurityScanTests(unittest.TestCase):
         )
         self.assertEqual(
             first_result["locations"][0]["physicalLocation"]["artifactLocation"],
-            {"uri": "docker-image://ghcr.io/example/app/container"},
+            {"uri": "container-images/ghcr.io/example/app/container"},
         )
         self.assertEqual(
             first_result["partialFingerprints"],
@@ -413,7 +413,7 @@ class SecurityScanTests(unittest.TestCase):
             run["artifacts"][0]["location"],
             {
                 "uri": (
-                    "docker-image://registry.example:5000/"
+                    "container-images/registry.example:5000/"
                     "team/app/container"
                 )
             },
