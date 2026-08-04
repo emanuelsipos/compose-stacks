@@ -58,7 +58,7 @@ services:
       service: x-defaults
 
   service.ttrss:
-    image: wangqiru/ttrss:nightly@sha256:3117a9e1addb2fb9c59c7d53bc7b015d7faf317ea0bd2f497aa521a7f5ec16ce
+    image: wangqiru/ttrss:nightly@sha256:0fae9c05bdf4658c5a7c7d033d7bcb163b289d140f9da06643448c6173baeda5
     container_name: ttrss
     depends_on:
       database.postgres:
