@@ -531,7 +531,7 @@ class SecurityScanTests(unittest.TestCase):
             self.assertEqual(values, [similarity_id])
 
     def test_kics_renovate_group_requires_queries_and_binary(self):
-        config = json.loads((SCRIPT.parents[2] / "renovate.json").read_text())
+        config = json.loads((SCRIPT.parents[2] / "renovate.json5").read_text())
         kics_rule = next(
             rule
             for rule in config["packageRules"]
