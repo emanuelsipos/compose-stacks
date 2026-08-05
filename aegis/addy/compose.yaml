@@ -151,7 +151,7 @@ services:
       service: x-docker-socket-proxy
 
   nginx:
-    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    image: nginx:1.31.3@sha256:640dee81b9ada2bf929ae17c2c7e88930f244216aa6418306226ce9bdc3271e6
     container_name: addy_nginx
     depends_on:
       - addy
