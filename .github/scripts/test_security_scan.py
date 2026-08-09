@@ -98,15 +98,27 @@ class SecurityScanTests(unittest.TestCase):
 
     def test_kics_scan_path_rejects_ambiguous_filename(self):
         root = Path("/workspace")
-        with mock.patch.object(
-            security_scan,
-            "changed_deployment_files",
-            return_value=[root / "stack/fragment,extra.yaml"],
-        ):
-            with self.assertRaisesRegex(SystemExit, "commas or newlines"):
-                security_scan.kics_scan_path(
-                    "pull_request", "base", "head", root
-                )
+        for name in ["fragment,extra.yaml", "fragment\rskip=true.yaml", "fragment\nextra.yaml"]:
+            with self.subTest(name=name), mock.patch.object(
+                security_scan,
+                "changed_deployment_files",
+                return_value=[root / "stack" / name],
+            ):
+                with self.assertRaisesRegex(SystemExit, "commas or line breaks"):
+                    security_scan.kics_scan_path(
+                        "pull_request", "base", "head", root
+                    )
+
+    def test_write_output_rejects_line_breaks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}):
+                for value in ["safe\rinjected=true", "safe\ninjected=true"]:
+                    with self.subTest(value=value), self.assertRaisesRegex(
+                        ValueError, "line breaks"
+                    ):
+                        security_scan.write_output("path", value)
+            self.assertFalse(output.exists())
 
     def test_image_matrix_is_stable_and_deduplicated(self):
         matrix = security_scan.image_matrix(["example/a:1", "example/a:1", "example/b:2"])
@@ -154,6 +166,42 @@ class SecurityScanTests(unittest.TestCase):
 
         self.assertEqual(len(matrix["include"]), 1)
         self.assertEqual(matrix["include"][0]["images"].split(), references)
+
+    def test_partial_image_matrix_pairs_only_matching_baseline_repositories(self):
+        current = ["ghcr.io/example/app:2@sha256:" + "b" * 64]
+        baseline = [
+            "ghcr.io/example/app:1@sha256:" + "a" * 64,
+            "ghcr.io/example/other:1@sha256:" + "c" * 64,
+        ]
+
+        matrix = security_scan.image_matrix(current, baseline_images=baseline)
+
+        self.assertEqual(matrix["include"][0]["images"], current[0])
+        self.assertEqual(
+            matrix["include"][0]["baseline_images"], baseline[0]
+        )
+
+    def test_partial_image_matrix_rejects_ambiguous_repository_baseline(self):
+        current = ["ghcr.io/example/app:3@sha256:" + "c" * 64]
+        baseline = [
+            "ghcr.io/example/app:1@sha256:" + "a" * 64,
+            "ghcr.io/example/app:2@sha256:" + "b" * 64,
+        ]
+
+        matrix = security_scan.image_matrix(current, baseline_images=baseline)
+
+        self.assertEqual(matrix["include"][0]["baseline_images"], "")
+
+    def test_partial_image_matrix_rejects_ambiguous_current_repository(self):
+        current = [
+            "ghcr.io/example/app:2@sha256:" + "b" * 64,
+            "ghcr.io/example/app:3@sha256:" + "c" * 64,
+        ]
+        baseline = ["ghcr.io/example/app:1@sha256:" + "a" * 64]
+
+        matrix = security_scan.image_matrix(current, baseline_images=baseline)
+
+        self.assertEqual(matrix["include"][0]["baseline_images"], "")
 
     def test_canonical_image_repository(self):
         self.assertEqual(
@@ -236,10 +284,45 @@ class SecurityScanTests(unittest.TestCase):
 
         self.assertEqual(values["count"], "1")
         self.assertEqual(values["full_inventory"], "true")
+        self.assertEqual(values["gate_new"], "false")
         self.assertEqual(
             len(matrix["include"]),
             security_scan.IMAGE_BUCKET_COUNT,
         )
+
+    def test_partial_plan_limits_baseline_to_changed_paths(self):
+        root = Path("/workspace")
+        files = [root / "stack/compose.yaml"]
+        arguments = security_scan.parser().parse_args(
+            [
+                "plan",
+                "--event",
+                "pull_request",
+                "--base",
+                "base",
+                "--head",
+                "head",
+                "--root",
+                str(root),
+            ]
+        )
+        with (
+            mock.patch.object(
+                security_scan, "image_scan_files", return_value=(files, False)
+            ),
+            mock.patch.object(
+                security_scan, "images_from_files", return_value=["example/app:2"]
+            ),
+            mock.patch.object(
+                security_scan,
+                "images_from_git_ref",
+                return_value=["example/app:1"],
+            ) as baseline,
+            mock.patch.object(security_scan, "write_output"),
+        ):
+            security_scan.plan(arguments)
+
+        baseline.assert_called_once_with("base", root, files)
 
     def test_combine_sarif_merges_runs_and_remaps_indices(self):
         combined = security_scan.combine_sarif(
@@ -529,6 +612,116 @@ class SecurityScanTests(unittest.TestCase):
             values = security_scan.exclusion_ids(root, "HEAD")
 
             self.assertEqual(values, [similarity_id])
+
+    def test_kics_fingerprint_is_line_stable_and_content_specific(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "similarity_id": "a" * 64,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        moved = dict(finding, line=20, similarity_id="b" * 64)
+        distinct = dict(finding, search_key="services.worker.privileged")
+
+        self.assertEqual(
+            security_scan.kics_finding_fingerprint("query", finding),
+            security_scan.kics_finding_fingerprint("query", moved),
+        )
+        self.assertNotEqual(
+            security_scan.kics_finding_fingerprint("query", finding),
+            security_scan.kics_finding_fingerprint("query", distinct),
+        )
+        self.assertNotEqual(
+            security_scan.kics_finding_fingerprint("query", finding, 0),
+            security_scan.kics_finding_fingerprint("query", finding, 1),
+        )
+
+    def test_kics_filter_suppresses_only_reviewed_duplicate_occurrence(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "similarity_id": "a" * 64,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.volumes",
+            "expected_value": "safe",
+            "actual_value": "sensitive",
+        }
+        query_id = "query-id"
+        json_document = {
+            "queries": [{"query_id": query_id, "files": [finding, finding.copy()]}]
+        }
+        sarif_result = {
+            "ruleId": query_id,
+            "message": {"text": "sensitive"},
+            "locations": [{"physicalLocation": {
+                "artifactLocation": {"uri": "stack/compose.yaml"},
+                "region": {"startLine": 10},
+            }}],
+        }
+        sarif_document = {"runs": [{"results": [sarif_result, sarif_result.copy()]}]}
+        reviewed = {security_scan.kics_finding_fingerprint(query_id, finding, 0)}
+
+        filtered_json, suppressed, findings = security_scan.filter_kics_json(
+            json_document, reviewed
+        )
+        filtered_sarif = security_scan.filter_kics_sarif(
+            sarif_document, suppressed, findings
+        )
+
+        self.assertEqual(len(filtered_json["queries"][0]["files"]), 1)
+        self.assertEqual(len(filtered_sarif["runs"][0]["results"]), 2)
+
+    def test_legacy_exclusion_maps_only_exact_similarity_id(self):
+        first = {
+            "file_name": "stack/compose.yaml",
+            "similarity_id": "a" * 64,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.first.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        second = dict(
+            first,
+            similarity_id="b" * 64,
+            search_key="services.second.privileged",
+        )
+        baseline = {
+            "queries": [{"query_id": "query-id", "files": [first, second]}]
+        }
+        records = [{"fingerprints": [], "similarity_id": "a" * 64}]
+
+        with mock.patch.object(
+            security_scan, "exclusion_records", return_value=records
+        ):
+            fingerprints = security_scan.exclusion_fingerprints(
+                Path("/workspace"), "main", baseline
+            )
+
+        self.assertEqual(
+            fingerprints,
+            {security_scan.kics_finding_fingerprint("query-id", first)},
+        )
+
+    def test_sarif_difference_keeps_only_new_vulnerability_identities(self):
+        def result(identity):
+            return {
+                "ruleId": identity,
+                "partialFingerprints": {"primaryLocationLineHash": identity},
+            }
+
+        current = {"runs": [{"results": [result("existing"), result("new")]}]}
+        baseline = {"runs": [{"results": [result("existing")]}]}
+
+        difference, count = security_scan.sarif_difference(current, baseline)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(
+            [item["ruleId"] for item in difference["runs"][0]["results"]],
+            ["new"],
+        )
 
     def test_kics_renovate_group_requires_queries_and_binary(self):
         config = json.loads((SCRIPT.parents[2] / "renovate.json5").read_text())

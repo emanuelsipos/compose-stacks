@@ -26,26 +26,6 @@ on:
           - checkov
           - trivy
         default: all
-      reopen_findings:
-        description: >
-          Reprocess dismissed suppression PRs (those closed without merging).
-          Pass 'all' to reprocess every dismissed finding currently in the scan
-          results, or a comma-separated list of similarity_id prefixes (minimum
-          8 chars, e.g. "fe37c69c,87a31c47"). Only findings that still appear in
-          the KICS scan output are affected — findings that no longer exist in
-          the codebase are ignored automatically. Leave blank for normal
-          behaviour.
-        type: string
-        default: ""
-      pr_limit:
-        description: >
-          Maximum number of suppression PRs to open in a single run (default:
-          20). Prevents runaway PR creation when many new findings appear at
-          once. Run the workflow again or increase the limit to process
-          remaining findings.
-        type: string
-        default: "20"
-
 # ── Convenience expressions used throughout ───────────────────────────────
 # is_pr    : true on pull_request only
 # is_push  : true on push + schedule (the "post to commit" triggers)
@@ -88,19 +68,8 @@ jobs:
       - name: Validate synchronized KICS pins
         run: python3 .github/scripts/security_scan.py verify-kics-pins
 
-      # Build the exclude_results list from .kics-exclude/ on origin/main.
-      # Reading from origin/main (not the checked-out branch) ensures PR scans
-      # always use the latest suppressions, even if the PR branch was created
-      # before a suppression PR was merged. Without this, a suppression merged
-      # to main after the PR branch was cut would be invisible to PR scans,
-      # causing false-positive check failures on already-suppressed findings.
-      - name: Build KICS exclude list
-        id: kics-exclude
-        run: |
-          # Fetch only the .kics-exclude/ tree from origin/main so we always
-          # have the current set of suppressions regardless of branch age.
-          git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
-          python3 .github/scripts/security_scan.py exclusions
+      - name: Fetch reviewed KICS suppressions
+        run: git fetch origin main --depth=1 --no-tags --filter=blob:none
 
       # Resolve the KICS scan path from git rather than interpolating
       # pull-request-controlled filenames into shell source. PRs scan every
@@ -188,46 +157,44 @@ jobs:
             --output kics-results \
             --queries .cache/kics-source/assets/queries \
             --libraries .cache/kics-source/assets/libraries \
-            --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
             --executable "$RUNNER_TEMP/kics"
           KICS_EXIT=$?
           set -e
           echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
 
-      # KICS similarity IDs can change when a finding moves. Apply the same
-      # stable rule-and-file suppression fallback used by the blocking step
-      # before publishing results to GitHub code scanning.
-      - name: Filter suppressed KICS results from SARIF
-        if: always() && hashFiles('kics-results/results.sarif') != ''
+      # Legacy suppressions are resolved only against the trusted base revision,
+      # which freezes the accepted occurrences without covering new findings.
+      - name: Scan trusted base for legacy suppression migration
+        if: github.event_name == 'pull_request' && hashFiles('kics-results/results.json') != ''
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ \
-            | xargs -I{} basename {} 2>/dev/null || true)
+          git worktree add --detach "$RUNNER_TEMP/kics-base" "$BASE_SHA"
+          python3 .github/scripts/security_scan.py kics \
+            --root "$RUNNER_TEMP/kics-base" \
+            --path . \
+            --formats json \
+            --output "$GITHUB_WORKSPACE/kics-base-results" \
+            --queries "$GITHUB_WORKSPACE/.cache/kics-source/assets/queries" \
+            --libraries "$GITHUB_WORKSPACE/.cache/kics-source/assets/libraries" \
+            --executable "$RUNNER_TEMP/kics"
 
-          jq --arg suppressed "$SUPPRESSED" '
-            def slug:
-              gsub("[/ ]"; "-") |
-              gsub("[^A-Za-z0-9._-]"; "") |
-              .[0:60];
-
-            .runs |= map(
-              .tool.driver.rules as $rules |
-              .results |= [
-                .[] |
-                . as $finding |
-                (first($rules[] | select(.id == $finding.ruleId)) // {}) as $rule |
-                ($finding.locations[0].physicalLocation.artifactLocation.uri // "") as $path |
-                (($rule.name // $finding.ruleId) | slug) as $query_slug |
-                ($path | slug) as $file_slug |
-                (($rule.defaultConfiguration.level // "warning") == "error") as $blocking |
-                ("HIGH_" + $query_slug + "_" + $file_slug + "_") as $high_prefix |
-                ("CRITICAL_" + $query_slug + "_" + $file_slug + "_") as $critical_prefix |
-                select($blocking) |
-                select(($suppressed | split("\n") | any(
-                  startswith($high_prefix) or startswith($critical_prefix)
-                )) | not)
-              ]
-            )
-          ' kics-results/results.sarif > kics-results/results.filtered.sarif
+      - name: Apply reviewed KICS finding suppressions
+        if: always() && hashFiles('kics-results/results.sarif') != ''
+        env:
+          BASELINE_JSON: ${{ github.event_name == 'pull_request' && 'kics-base-results/results.json' || '' }}
+        run: |
+          args=(
+            filter-kics
+            --json kics-results/results.json
+            --sarif kics-results/results.sarif
+            --json-output kics-results/results.filtered.json
+            --sarif-output kics-results/results.filtered.sarif
+          )
+          if [ -n "$BASELINE_JSON" ]; then
+            args+=(--baseline-json "$BASELINE_JSON")
+          fi
+          python3 .github/scripts/security_scan.py "${args[@]}"
 
       - name: Upload KICS results to GitHub code scanning
         if: always() && hashFiles('kics-results/results.filtered.sarif') != ''
@@ -242,14 +209,14 @@ jobs:
         if: always() && github.event_name != 'pull_request'
         run: |
           # KICS
-          if [ -f kics-results/results.json ]; then
-            KICS_TOTAL=$(jq '[.queries[].files[]] | length' kics-results/results.json)
-            KICS_HIGH=$(jq '[.queries[] | select(.severity=="HIGH" or .severity=="CRITICAL") | .files[]] | length' kics-results/results.json)
+          if [ -f kics-results/results.filtered.json ]; then
+            KICS_TOTAL=$(jq '[.queries[].files[]] | length' kics-results/results.filtered.json)
+            KICS_HIGH=$(jq '[.queries[] | select(.severity=="HIGH" or .severity=="CRITICAL") | .files[]] | length' kics-results/results.filtered.json)
             KICS_BODY=$(jq -r '
               .queries[] | select(.files | length > 0) |
               "[\(.severity)] \(.query_name)\n" +
               (.files[] | "  → \(.file_name):\(.line)\n")
-            ' kics-results/results.json 2>/dev/null || echo "Could not parse results.")
+            ' kics-results/results.filtered.json 2>/dev/null || echo "Could not parse results.")
           else
             KICS_TOTAL=0; KICS_HIGH=0; KICS_BODY="No results."
           fi
@@ -306,12 +273,6 @@ jobs:
       # Always runs regardless of trigger or dry_run — findings are findings.
       # Treat a non-zero scanner exit or a missing report as a hard failure.
       #
-      # Secondary suppression filter: --exclude-results filters by sim_id, but
-      # sim_ids drift when a file is modified in a PR (KICS recomputes the hash
-      # from changed content). As a fallback, filter out any HIGH/CRITICAL finding
-      # whose (severity, query_name, file_name) combination matches a .kics-exclude/
-      # filename on origin/main -- i.e., the finding was previously suppressed for
-      # that file regardless of which exact line or version triggered it.
       - name: Block on CRITICAL/HIGH findings
         if: always()
         run: |
@@ -320,34 +281,11 @@ jobs:
           if [ "${{ steps.kics.outcome }}" = "failure" ] || \
              { [ "${{ steps.kics.outcome }}" = "success" ] && \
                { [ "${{ steps.kics.outputs.exit_code }}" != "0" ] || \
-                 [ ! -f kics-results/results.json ]; }; }; then
+                  [ ! -f kics-results/results.filtered.json ]; }; }; then
             echo "::error::KICS scan failed to produce results. Check for docker pull errors above."
             BLOCK=1
-          elif [ -f kics-results/results.json ]; then
-            # Build suppression index from .kics-exclude/ filenames on origin/main.
-            # Each filename encodes: {SEVERITY}_{QuerySlug}_{FileSlug}_L{line}_{sim8}
-            # We match on the {SEVERITY}_{QuerySlug}_{FileSlug}_ prefix, which is
-            # stable even when line numbers or sim_ids change due to file edits.
-            SUPPRESSED=$(git ls-tree -r --name-only origin/main -- .kics-exclude/ 2>/dev/null \
-              | xargs -I{} basename {} 2>/dev/null || true)
-
-            COUNT=0
-            while IFS= read -r finding; do
-              SEV=$(echo "$finding"   | jq -r '.severity')
-              QNAME=$(echo "$finding" | jq -r '.query_name')
-              FNAME=$(echo "$finding" | jq -r '.file_name')
-              # Derive slug prefix matching exclude_filename() in kics-pr-manager.py
-              Q_SLUG=$(echo "$QNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
-              F_SLUG=$(echo "$FNAME" | sed 's|[/ \\]|-|g; s|[^A-Za-z0-9._-]||g' | cut -c1-60)
-              PREFIX="${SEV}_${Q_SLUG}_${F_SLUG}_"
-              # Check if any .kics-exclude filename starts with this prefix
-              if echo "$SUPPRESSED" | grep -q "^${PREFIX}"; then
-                echo "  suppressed by name match: ${SEV} ${QNAME} in ${FNAME}"
-              else
-                echo "  unsuppressed finding: ${SEV} ${QNAME} in ${FNAME}"
-                COUNT=$((COUNT + 1))
-              fi
-            done < <(jq -c '.queries[] | select(.severity=="CRITICAL" or .severity=="HIGH") | . as $q | .files[] | {severity: $q.severity, query_name: $q.query_name, file_name: .file_name}' kics-results/results.json)
+          elif [ -f kics-results/results.filtered.json ]; then
+            COUNT=$(jq '[.queries[] | select(.severity=="CRITICAL" or .severity=="HIGH") | .files[]] | length' kics-results/results.filtered.json)
 
             if [ "$COUNT" -gt 0 ]; then
               echo "::error::KICS: $COUNT new CRITICAL/HIGH finding(s) -- see GitHub code scanning"
@@ -487,6 +425,7 @@ jobs:
     outputs:
       count: ${{ steps.plan.outputs.count }}
       full_inventory: ${{ steps.plan.outputs.full_inventory }}
+      gate_new: ${{ steps.plan.outputs.gate_new }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Checkout code
@@ -544,37 +483,46 @@ jobs:
         id: scan
         env:
           IMAGES: ${{ matrix.images }}
+          BASELINE_IMAGES: ${{ matrix.baseline_images }}
         run: |
-          mkdir -p trivy-image-results
+          mkdir -p trivy-image-results/current trivy-image-results/baseline
           ERRORS=0
-          INDEX=0
-          for image in $IMAGES; do
-            INDEX=$((INDEX + 1))
-            echo "Scanning $image"
-            REPORT="trivy-image-results/image-${INDEX}.sarif"
-            if ! trivy image \
-              --scanners vuln \
-              --ignore-unfixed \
-              --severity HIGH,CRITICAL \
-              --format sarif \
-              --output "$REPORT" \
-              "$image"; then
-              echo "::error::Trivy could not scan $image"
-              ERRORS=$((ERRORS + 1))
-            elif [ ! -s "$REPORT" ]; then
-              echo "::error::Trivy did not produce SARIF for $image"
-              ERRORS=$((ERRORS + 1))
-            elif ! python3 .github/scripts/security_scan.py normalize-image-sarif \
-              --input "$REPORT" \
-              --output "$REPORT" \
-              --image "$image"; then
-              echo "::error::Could not normalize SARIF identity for $image"
-              ERRORS=$((ERRORS + 1))
-            fi
-            if ! trivy clean --scan-cache; then
-              echo "::warning::Trivy scan cache cleanup failed"
-            fi
-          done
+          scan_images() {
+            local group=$1
+            local images=$2
+            local index=0
+            for image in $images; do
+              index=$((index + 1))
+              echo "Scanning $image"
+              REPORT="trivy-image-results/${group}/image-${index}.sarif"
+              if ! trivy image \
+                --scanners vuln \
+                --ignore-unfixed \
+                --severity HIGH,CRITICAL \
+                --format sarif \
+                --output "$REPORT" \
+                "$image"; then
+                echo "::error::Trivy could not scan $image"
+                ERRORS=$((ERRORS + 1))
+              elif [ ! -s "$REPORT" ]; then
+                echo "::error::Trivy did not produce SARIF for $image"
+                ERRORS=$((ERRORS + 1))
+              elif ! python3 .github/scripts/security_scan.py normalize-image-sarif \
+                --input "$REPORT" \
+                --output "$REPORT" \
+                --image "$image"; then
+                echo "::error::Could not normalize SARIF identity for $image"
+                ERRORS=$((ERRORS + 1))
+              fi
+              if ! trivy clean --scan-cache; then
+                echo "::warning::Trivy scan cache cleanup failed"
+              fi
+            done
+          }
+          scan_images current "$IMAGES"
+          if [ "${{ needs.image-scan-plan.outputs.gate_new }}" = "true" ]; then
+            scan_images baseline "$BASELINE_IMAGES"
+          fi
           echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
 
       - name: Combine image scan results
@@ -583,12 +531,28 @@ jobs:
           always() &&
           steps.scan.outputs.errors == '0' && (
             needs.image-scan-plan.outputs.full_inventory == 'true' ||
-            hashFiles('trivy-image-results/image-*.sarif') != ''
+             hashFiles('trivy-image-results/current/image-*.sarif') != ''
           )
         run: |
           python3 .github/scripts/security_scan.py combine \
-            --pattern 'trivy-image-results/image-*.sarif' \
+            --pattern 'trivy-image-results/current/image-*.sarif' \
             --output trivy-image-results/combined.sarif
+
+      - name: Compare changed images with trusted baseline
+        id: gate
+        if: |
+          always() &&
+          needs.image-scan-plan.outputs.gate_new == 'true' &&
+          steps.scan.outputs.errors == '0' &&
+          steps.combine.outcome == 'success'
+        run: |
+          python3 .github/scripts/security_scan.py combine \
+            --pattern 'trivy-image-results/baseline/image-*.sarif' \
+            --output trivy-image-results/baseline.sarif
+          python3 .github/scripts/security_scan.py diff-sarif \
+            --current trivy-image-results/combined.sarif \
+            --baseline trivy-image-results/baseline.sarif \
+            --output trivy-image-results/new.sarif
 
       - name: Summarize changed-image findings
         if: |
@@ -596,7 +560,7 @@ jobs:
           needs.image-scan-plan.outputs.full_inventory != 'true' &&
           steps.combine.outcome == 'success'
         run: |
-          COUNT=$(jq '[.runs[]?.results[]?] | length' trivy-image-results/combined.sarif)
+          COUNT=${{ steps.gate.outputs.count }}
           {
             echo "## Changed-image vulnerability scan"
             echo
@@ -609,7 +573,7 @@ jobs:
                   {rule: .ruleId, detail: ((.message.text // "") | split("\n")[0])}] |
                 unique_by([.rule, .detail]) | .[:50][] |
                 "- **\(.rule)** — \(.detail)"
-              ' trivy-image-results/combined.sarif
+              ' trivy-image-results/new.sarif
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -630,6 +594,12 @@ jobs:
       - name: Fail on scanner errors
         if: always() && steps.scan.outputs.errors != '0'
         run: exit 1
+
+      - name: Fail on newly introduced image vulnerabilities
+        if: always() && steps.gate.outputs.count != '' && steps.gate.outputs.count != '0'
+        run: |
+          echo "::error::Trivy found ${{ steps.gate.outputs.count }} newly introduced HIGH/CRITICAL image vulnerability result(s)"
+          exit 1
 
   # Publish only after every full-inventory bucket has scanned successfully.
   # This prevents any category from being replaced by an incomplete run when a
@@ -669,9 +639,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: Per-finding suppression PRs
   #
-  # Runs on push to main, schedule, and workflow_dispatch.
-  # dry_run=true → skips the PR-opening step (scan still runs so you can
-  #                inspect what *would* have been opened).
+  # Runs only from the protected default-branch schedule. Manual dispatches run
+  # the read-only scanner jobs without granting repository write permissions.
   #
   # Suppressions are stored as one reviewed finding per .kics-exclude/ file.
   # ─────────────────────────────────────────────────────────────────────────
@@ -681,12 +650,14 @@ jobs:
     # push is excluded: every merge to main previously triggered a full KICS
     # scan + PR manager run. Since most findings are already dismissed or have
     # an open PR, push runs were almost always no-ops and caused unnecessary
-    # load. schedule (weekly) provides the safety net; workflow_dispatch
-    # (with reopen_findings input) covers any on-demand needs.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # load. The protected weekly schedule is the only write-capable trigger.
+    if: github.event_name == 'schedule'
     permissions:
       contents: write
       pull-requests: write
+    concurrency:
+      group: security-scan-fix-prs
+      cancel-in-progress: false
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -698,21 +669,6 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      # Build the exclude_results list from committed .kics-exclude/ files.
-      # Each file contains one similarity_id written by a previous merged PR.
-      # The list is passed directly to the action's exclude_results input —
-      # replacing the old inject-to-yaml approach which was fragile and required
-      # .kics-exclude/ to be non-empty or the yaml would be malformed.
-      # Build the exclude_results list from .kics-exclude/ on origin/main.
-      # fix-prs always runs on schedule/dispatch from main, so origin/main
-      # equals HEAD here -- but using the same approach as misconfig keeps
-      # the two jobs consistent.
-      - name: Build KICS exclude list
-        id: kics-exclude
-        run: |
-          git fetch origin main --depth=1 --no-tags --filter=blob:none 2>/dev/null || true
-          python3 .github/scripts/security_scan.py exclusions
 
       - name: Validate synchronized KICS pins
         run: python3 .github/scripts/security_scan.py verify-kics-pins
@@ -740,39 +696,23 @@ jobs:
             --queries .cache/kics-source/assets/queries \
             --libraries .cache/kics-source/assets/libraries \
             --exclude-severities medium,low,info \
-            --exclude-results "${{ steps.kics-exclude.outputs.list }}" \
             --executable "$RUNNER_TEMP/kics"
 
-      # One PR per finding. Closed-without-merge → permanently dismissed
-      # unless --reopen is set (via the reopen_findings dispatch input).
-      # --pr-limit caps PRs opened per run (default 20, overridable via input).
-      # Skipped entirely on dry_run so no branches or PRs are created.
+      # One PR per finding. Closed-without-merge findings remain dismissed.
+      # --pr-limit caps PRs opened per run.
       - name: Open per-finding suppression PRs
-        if: inputs.dry_run == false || github.event_name != 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          REOPEN_ARG=""
-          if [ -n "${{ inputs.reopen_findings }}" ]; then
-            REOPEN_ARG="--reopen ${{ inputs.reopen_findings }}"
-          fi
-          LIMIT="${{ inputs.pr_limit }}"
-          LIMIT_ARG="--pr-limit ${LIMIT:-20}"
-          python3 .github/scripts/kics-pr-manager.py \
-            --kics  kics-results/results.json \
-            --repo  ${{ github.repository }} \
-            --token "$GITHUB_TOKEN" \
-            --base  main \
-            $LIMIT_ARG \
-            $REOPEN_ARG
-
-      # Log a notice when dry_run suppressed PR creation so the run summary
-      # makes the skipped action obvious.
-      - name: Dry-run notice
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
-        run: |
-          echo "::notice::Dry run — KICS scan completed but no suppression PRs were opened."
-          echo "          Re-run with dry_run=false to open PRs for the findings above."
+          args=(
+            --kics kics-results/results.json
+            --repo "$REPOSITORY"
+            --token "$GITHUB_TOKEN"
+            --base main
+            --pr-limit 20
+          )
+          python3 .github/scripts/kics-pr-manager.py "${args[@]}"
 
       - name: Clean up scan artifacts
         if: always()

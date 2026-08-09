@@ -15,6 +15,7 @@ import subprocess
 import tarfile
 import urllib.parse
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 
@@ -27,6 +28,7 @@ SARIF_SCHEMA = (
     "cs01/schemas/sarif-schema-2.1.0.json"
 )
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
+KICS_FINGERPRINT = re.compile(r"^finding-v1:([a-f0-9]{64})$")
 KICS_QUERY_REF = re.compile(
     r"repository:\s*Checkmarx/kics\s*\n\s*ref:\s*[a-f0-9]{40}\s*#\s*v([^\s]+)"
 )
@@ -81,8 +83,8 @@ def kics_scan_path(event: str, base: str, head: str, root: Path) -> str | None:
         return "."
     files = changed_deployment_files(base, head, root)
     relative_paths = [path.relative_to(root).as_posix() for path in files]
-    if any("," in name or "\n" in name for name in relative_paths):
-        raise SystemExit("KICS scan paths cannot contain commas or newlines")
+    if any("," in name or "\r" in name or "\n" in name for name in relative_paths):
+        raise SystemExit("KICS scan paths cannot contain commas or line breaks")
     return ",".join(relative_paths) or None
 
 
@@ -92,6 +94,41 @@ def images_from_files(files: list[Path]) -> list[str]:
         for line in path.read_text(encoding="utf-8").splitlines():
             if match := IMAGE_LINE.match(line):
                 images.add(match.group(1))
+    return sorted(images)
+
+
+def images_from_git_ref(
+    ref: str, root: Path, files: list[Path] | None = None
+) -> list[str]:
+    if files is not None and not files:
+        return []
+    images: set[str] = set()
+    paths = (
+        [f":(literal){path.relative_to(root).as_posix()}" for path in files]
+        if files is not None
+        else [
+            ":(glob)**/*.yaml",
+            ":(glob)**/*.yml",
+            ":(exclude).github/**",
+        ]
+    )
+    result = subprocess.run(
+        ["git", "grep", "-h", "-E", r"^[[:space:]]*image:", ref, "--", *paths],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in {0, 1}:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            result.args,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    for line in result.stdout.splitlines():
+        if match := IMAGE_LINE.match(line):
+            images.add(match.group(1))
     return sorted(images)
 
 
@@ -115,6 +152,7 @@ def image_matrix(
     images: list[str],
     bucket_count: int = IMAGE_BUCKET_COUNT,
     include_empty: bool = False,
+    baseline_images: list[str] | None = None,
 ) -> dict[str, list[dict[str, str]]]:
     buckets: dict[int, list[str]] = {}
     for image in sorted(set(images)):
@@ -125,12 +163,228 @@ def image_matrix(
         )
         buckets.setdefault(bucket, []).append(image)
     bucket_ids = range(bucket_count) if include_empty else sorted(buckets)
-    return {
-        "include": [
-            {"id": f"{bucket:02d}", "images": " ".join(buckets.get(bucket, []))}
-            for bucket in bucket_ids
-        ]
+    baseline_by_repository: dict[str, list[str]] = {}
+    for image in sorted(set(baseline_images or [])):
+        baseline_by_repository.setdefault(canonical_image_repository(image), []).append(image)
+
+    entries: list[dict[str, str]] = []
+    for bucket in bucket_ids:
+        bucket_images = buckets.get(bucket, [])
+        current_by_repository: dict[str, list[str]] = {}
+        for image in bucket_images:
+            current_by_repository.setdefault(
+                canonical_image_repository(image), []
+            ).append(image)
+        entry = {"id": f"{bucket:02d}", "images": " ".join(bucket_images)}
+        if baseline_images is not None:
+            entry["baseline_images"] = " ".join(
+                matches[0]
+                for repository, current_matches in sorted(
+                    current_by_repository.items()
+                )
+                if len(current_matches) == 1
+                and len(matches := baseline_by_repository.get(repository, [])) == 1
+            )
+        entries.append(entry)
+    return {"include": entries}
+
+
+def kics_finding_identity(query_id: str, finding: dict) -> tuple[str, ...]:
+    path = str(finding.get("file_name", "")).replace("\\", "/").removeprefix("./")
+    return (
+        query_id,
+        path,
+        str(finding.get("issue_type", "")),
+        str(finding.get("search_key", "")),
+        str(finding.get("expected_value", "")),
+        str(finding.get("actual_value", "")),
+    )
+
+
+def kics_finding_fingerprint(
+    query_id: str, finding: dict, occurrence: int = 0
+) -> str:
+    identity = "\0".join(
+        ["kics-finding-v1", *kics_finding_identity(query_id, finding), str(occurrence)]
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def exclusion_records(root: Path, ref: str) -> list[dict[str, str | list[str]]]:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", ref, "--", ".kics-exclude/"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    records: list[dict[str, str | list[str]]] = []
+    for name in result.stdout.splitlines():
+        if name.endswith("/README.md"):
+            continue
+        content = subprocess.run(
+            ["git", "show", f"{ref}:{name}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        lines = content.splitlines()
+        records.append(
+            {
+                "name": Path(name).name,
+                "similarity_id": lines[0].strip() if lines else "",
+                "query_id": lines[1].strip() if len(lines) >= 2 else "",
+                "file_name": lines[2].strip() if len(lines) >= 3 else "",
+                "fingerprints": [
+                    match.group(1)
+                    for line in lines[3:]
+                    if (match := KICS_FINGERPRINT.fullmatch(line.strip()))
+                ],
+            }
+        )
+    return records
+
+
+def exclusion_fingerprints(
+    root: Path, ref: str, baseline: dict | None = None
+) -> set[str]:
+    records = exclusion_records(root, ref)
+    fingerprints = {
+        fingerprint
+        for record in records
+        for fingerprint in record["fingerprints"]
     }
+    legacy = [record for record in records if not record["fingerprints"]]
+    if not legacy or baseline is None:
+        return fingerprints
+
+    for query in baseline.get("queries", []):
+        occurrences: Counter[tuple[str, ...]] = Counter()
+        for finding in query.get("files", []):
+            identity = kics_finding_identity(query.get("query_id", ""), finding)
+            occurrence = occurrences[identity]
+            occurrences[identity] += 1
+            if any(
+                record["similarity_id"] == finding.get("similarity_id")
+                for record in legacy
+            ):
+                fingerprints.add(
+                    kics_finding_fingerprint(
+                        query.get("query_id", ""), finding, occurrence
+                    )
+                )
+    return fingerprints
+
+
+def filter_kics_json(
+    document: dict, fingerprints: set[str]
+) -> tuple[
+    dict,
+    Counter[tuple[str, str, int, str]],
+    Counter[tuple[str, str, int, str]],
+]:
+    filtered = copy.deepcopy(document)
+    suppressed: Counter[tuple[str, str, int, str]] = Counter()
+    findings: Counter[tuple[str, str, int, str]] = Counter()
+    for query in filtered.get("queries", []):
+        query_id = query.get("query_id", "")
+        occurrences: Counter[tuple[str, ...]] = Counter()
+        kept = []
+        for finding in query.get("files", []):
+            identity = kics_finding_identity(query_id, finding)
+            occurrence = occurrences[identity]
+            occurrences[identity] += 1
+            fingerprint = kics_finding_fingerprint(query_id, finding, occurrence)
+            sarif_key = (
+                query_id,
+                str(finding.get("file_name", ""))
+                .replace("\\", "/")
+                .removeprefix("./"),
+                int(finding.get("line", 0)),
+                str(finding.get("actual_value", "")),
+            )
+            findings[sarif_key] += 1
+            if fingerprint in fingerprints:
+                suppressed[sarif_key] += 1
+            else:
+                kept.append(finding)
+        query["files"] = kept
+    return filtered, suppressed, findings
+
+
+def filter_kics_sarif(
+    document: dict,
+    suppressed: Counter[tuple[str, str, int, str]],
+    findings: Counter[tuple[str, str, int, str]],
+) -> dict:
+    filtered = copy.deepcopy(document)
+    sarif_counts: Counter[tuple[str, str, int, str]] = Counter()
+    for run in filtered.get("runs", []):
+        for result in run.get("results", []):
+            sarif_counts[kics_sarif_result_key(result)] += 1
+    removable = {
+        key
+        for key, count in suppressed.items()
+        if count == findings[key] == sarif_counts[key]
+    }
+    for run in filtered.get("runs", []):
+        kept = []
+        for result in run.get("results", []):
+            if kics_sarif_result_key(result) not in removable:
+                kept.append(result)
+        run["results"] = kept
+    return filtered
+
+
+def kics_sarif_result_key(result: dict) -> tuple[str, str, int, str]:
+    location = result.get("locations", [{}])[0].get("physicalLocation", {})
+    path = (
+        str(location.get("artifactLocation", {}).get("uri", ""))
+        .replace("\\", "/")
+        .removeprefix("./")
+    )
+    return (
+        str(result.get("ruleId", "")),
+        path,
+        int(location.get("region", {}).get("startLine", 0)),
+        str(result.get("message", {}).get("text", "")),
+    )
+
+
+def sarif_result_identity(result: dict) -> str:
+    fingerprint = result.get("partialFingerprints", {}).get("primaryLocationLineHash")
+    if isinstance(fingerprint, str) and fingerprint:
+        return fingerprint
+    properties = result.get("properties", {})
+    identity = "\0".join(
+        [
+            "sarif-result-v1",
+            str(properties.get("imageRepository", "")),
+            str(result.get("ruleId", "")),
+            str(result.get("message", {}).get("text", "")),
+        ]
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def sarif_difference(current: dict, baseline: dict) -> tuple[dict, int]:
+    baseline_ids = {
+        sarif_result_identity(result)
+        for run in baseline.get("runs", [])
+        for result in run.get("results", [])
+    }
+    difference = copy.deepcopy(current)
+    count = 0
+    for run in difference.get("runs", []):
+        results = [
+            result
+            for result in run.get("results", [])
+            if sarif_result_identity(result) not in baseline_ids
+        ]
+        run["results"] = results
+        count += len(results)
+    return difference, count
 
 
 def empty_sarif() -> dict:
@@ -382,6 +636,8 @@ def verify_kics_pins(args: argparse.Namespace) -> None:
 
 
 def write_output(name: str, value: str) -> None:
+    if "\r" in value or "\n" in value:
+        raise ValueError("GitHub Actions output values cannot contain line breaks")
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"{name}={value}\n")
 
@@ -426,12 +682,24 @@ def plan(args: argparse.Namespace) -> None:
         root,
     )
     images = images_from_files(files)
+    baseline_images: list[str] | None = None
+    if not full_inventory:
+        baseline_ref = args.base if args.event == "pull_request" else args.before
+        if baseline_ref and set(baseline_ref) != {"0"}:
+            baseline_images = images_from_git_ref(baseline_ref, root, files)
+        else:
+            baseline_images = []
     matrix = json.dumps(
-        image_matrix(images, include_empty=full_inventory),
+        image_matrix(
+            images,
+            include_empty=full_inventory,
+            baseline_images=baseline_images,
+        ),
         separators=(",", ":"),
     )
     write_output("count", str(len(images)))
     write_output("full_inventory", str(full_inventory).lower())
+    write_output("gate_new", str(not full_inventory).lower())
     write_output("matrix", matrix)
     scope = "full inventory" if full_inventory else "changed files"
     print(
@@ -460,10 +728,43 @@ def normalize(args: argparse.Namespace) -> None:
     )
 
 
-def exclusions(args: argparse.Namespace) -> None:
-    values = exclusion_ids(Path(args.root).resolve(), args.ref)
-    write_output("list", ",".join(values))
-    print(f"Loaded {len(values)} exclusion(s) from {args.ref}")
+def filter_kics(args: argparse.Namespace) -> None:
+    baseline = (
+        json.loads(Path(args.baseline_json).read_text(encoding="utf-8"))
+        if args.baseline_json
+        else None
+    )
+    fingerprints = exclusion_fingerprints(
+        Path(args.root).resolve(), args.ref, baseline
+    )
+    json_document = json.loads(Path(args.json).read_text(encoding="utf-8"))
+    sarif_document = json.loads(Path(args.sarif).read_text(encoding="utf-8"))
+    filtered_json, suppressed, findings = filter_kics_json(
+        json_document, fingerprints
+    )
+    filtered_sarif = filter_kics_sarif(sarif_document, suppressed, findings)
+    Path(args.json_output).write_text(
+        json.dumps(filtered_json, separators=(",", ":")), encoding="utf-8"
+    )
+    Path(args.sarif_output).write_text(
+        json.dumps(filtered_sarif, separators=(",", ":")), encoding="utf-8"
+    )
+    print(
+        f"Applied {len(fingerprints)} reviewed KICS fingerprint(s); "
+        f"suppressed {sum(suppressed.values())} finding(s)"
+    )
+
+
+def diff_sarif(args: argparse.Namespace) -> None:
+    current = json.loads(Path(args.current).read_text(encoding="utf-8"))
+    baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+    difference, count = sarif_difference(current, baseline)
+    Path(args.output).write_text(
+        json.dumps(difference, separators=(",", ":")), encoding="utf-8"
+    )
+    if "GITHUB_OUTPUT" in os.environ:
+        write_output("count", str(count))
+    print(f"Found {count} newly introduced image vulnerability result(s)")
 
 
 def kics(args: argparse.Namespace) -> None:
@@ -493,6 +794,22 @@ def parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--root", default=".")
     plan_parser.set_defaults(func=plan)
 
+    filter_kics_parser = commands.add_parser("filter-kics")
+    filter_kics_parser.add_argument("--json", required=True)
+    filter_kics_parser.add_argument("--sarif", required=True)
+    filter_kics_parser.add_argument("--json-output", required=True)
+    filter_kics_parser.add_argument("--sarif-output", required=True)
+    filter_kics_parser.add_argument("--ref", default="origin/main")
+    filter_kics_parser.add_argument("--root", default=".")
+    filter_kics_parser.add_argument("--baseline-json")
+    filter_kics_parser.set_defaults(func=filter_kics)
+
+    diff_parser = commands.add_parser("diff-sarif")
+    diff_parser.add_argument("--current", required=True)
+    diff_parser.add_argument("--baseline", required=True)
+    diff_parser.add_argument("--output", required=True)
+    diff_parser.set_defaults(func=diff_sarif)
+
     combine_parser = commands.add_parser("combine")
     combine_parser.add_argument("--pattern", required=True)
     combine_parser.add_argument("--output", required=True)
@@ -503,11 +820,6 @@ def parser() -> argparse.ArgumentParser:
     normalize_parser.add_argument("--output", required=True)
     normalize_parser.add_argument("--image", required=True)
     normalize_parser.set_defaults(func=normalize)
-
-    exclusions_parser = commands.add_parser("exclusions")
-    exclusions_parser.add_argument("--ref", default="origin/main")
-    exclusions_parser.add_argument("--root", default=".")
-    exclusions_parser.set_defaults(func=exclusions)
 
     kics_parser = commands.add_parser("kics")
     kics_parser.add_argument("--path", required=True)
