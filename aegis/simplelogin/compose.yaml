@@ -64,7 +64,7 @@ services:
 
   cloudflared:
     container_name: addy_cloudflared
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN:?tunnel token required}
     <<: *cloudflared-base
 
   crowdsec:
@@ -112,6 +112,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-docker-socket-proxy
+    mem_limit: ${SIMPLELOGIN_SOCKET_PROXY_MEM_LIMIT:-256m}
 
   email:
     container_name: sl-email
@@ -160,6 +161,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${SIMPLELOGIN_NGINX_MEM_LIMIT:-256m}
   postfix:
     image: simplelogin/postfix:4.3.3@sha256:b0e945aee53a4d0e2a1b3e4767ddd2a96e94c8123b89badca4e02e9338c61ab5
     container_name: postfix
@@ -190,6 +192,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${SIMPLELOGIN_POSTGRES_MEM_LIMIT:-1g}
 
 networks:
   default:

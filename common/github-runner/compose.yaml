@@ -5,8 +5,8 @@ services:
     environment:
       REPO_URL: https://github.com/example/repo
       RUNNER_NAME_PREFIX: archon-runner
-      APP_ID: ${APP_ID}
-      APP_PRIVATE_KEY: ${APP_PRIVATE_KEY}
+      APP_ID: ${APP_ID:?app ID required}
+      APP_PRIVATE_KEY: ${APP_PRIVATE_KEY:?app private key required}
       RUNNER_SCOPE: "org"
       ORG_NAME: ${ORG_NAME}
       LABELS: linux,arm64

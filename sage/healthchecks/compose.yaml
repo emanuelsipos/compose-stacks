@@ -28,7 +28,7 @@ services:
       DB_HOST: database.postgres
       DB_NAME: ${PG_DB:-hc}
       DB_USER: ${PG_USER:-postgres}
-      DB_PASSWORD: ${PG_PASS}
+      DB_PASSWORD: ${PG_PASS:?database password required}
       DB_PORT: 5432
     env_file: .env
     networks:

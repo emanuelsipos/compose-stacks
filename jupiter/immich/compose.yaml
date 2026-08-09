@@ -6,9 +6,9 @@ services:
     volumes:
       - /opt/docker/immich/postgres/:/var/lib/postgresql/
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?database password required}
+      POSTGRES_USER: ${DB_USERNAME:?database user required}
+      POSTGRES_DB: ${DB_DATABASE_NAME:?database name required}
       POSTGRES_INITDB_ARGS: "--data-checksums"
     extends:
       file: ../../_common/base.yaml

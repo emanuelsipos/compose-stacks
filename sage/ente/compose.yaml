@@ -12,7 +12,7 @@ services:
       - /opt/docker/ente/museum.yaml:/museum.yaml:ro
       - /opt/docker/ente/data/:/data/:ro
     environment:
-      POSTGRES_PASSWORD: ${PG_PASS}
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
       POSTGRES_USER: ${PG_USER:-pguser}
       POSTGRES_DB: ${PG_DB:-ente_db}
     env_file: .env

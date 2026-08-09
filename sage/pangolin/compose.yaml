@@ -14,7 +14,7 @@ services:
     image: favonia/cloudflare-ddns:1.17.0@sha256:61013368c8f95981c0bb8bf56d962078d8b4e95724a554fa2dabb20d6e478097
     container_name: cloudflare-ddns-real
     environment:
-      - CLOUDFLARE_API_TOKEN=${CF_API_TOKEN}
+      - CLOUDFLARE_API_TOKEN=${CF_API_TOKEN:?API token required}
       - DOMAINS=${CF_DDNS_REAL_DOMAINS}
       - PROXIED=false
     network_mode: host
@@ -157,7 +157,7 @@ services:
       - /opt/docker/pangolin/traefik/logs/:/var/log/traefik/
       - /opt/docker/pangolin/traefik/badger-plugin/:/plugins-local/src/github.com/fosrl/badger/
     environment:
-      - CF_DNS_API_TOKEN=${CF_API_TOKEN}
+      - CF_DNS_API_TOKEN=${CF_API_TOKEN:?API token required}
     network_mode: service:gerbil
     command:
       - --configFile=/etc/traefik/traefik_config.yml

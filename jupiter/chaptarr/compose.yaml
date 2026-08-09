@@ -26,7 +26,7 @@ services:
       Chaptarr__Postgres__Host: database.postgres
       Chaptarr__Postgres__Port: 5432
       Chaptarr__Postgres__User: ${PG_USER:-chaptarr}
-      Chaptarr__Postgres__Password: ${PG_PASS}
+      Chaptarr__Postgres__Password: ${PG_PASS:?database password required}
       Chaptarr__Postgres__MainDb: ${PG_DB:-chaptarr-main}
       Chaptarr__Postgres__LogDb: chaptarr-log
       Chaptarr__Postgres__CacheDb: chaptarr-cache
