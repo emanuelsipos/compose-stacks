@@ -3,7 +3,7 @@ x-profilarr-base: &profilarr-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: ghcr.io/dictionarry-hub/profilarr:2.0.9@sha256:7a9b5112ff227320d17c65ab643a5d875713e6235991ef04a8e482ec51427902
+  image: ghcr.io/dictionarry-hub/profilarr:2.1.0@sha256:75a43c9c19c70f6e48315d4ed5cef3232d905da8fab397391a2078a5e0fd7ec1
   env_file: .env
   environment: &profilarr-env
     PARSER_HOST: parser
@@ -14,7 +14,7 @@ x-profilarr-base: &profilarr-base
 
 services:
   parser:
-    image: ghcr.io/dictionarry-hub/profilarr-parser:2.0.9@sha256:16b22ef6485e135cc660cd511697c637d44649753d02397c9374e1317cfaaf0e
+    image: ghcr.io/dictionarry-hub/profilarr-parser:2.1.0@sha256:83d668258b2a798adaf25dec0d78e5159953c3b015e2d31edb8e5b9859f3c591
     container_name: profilarr-parser
     expose:
       - '5000'
