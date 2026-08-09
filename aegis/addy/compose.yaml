@@ -44,7 +44,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - CLOUDFLARE_API_TOKEN=${CF_API_TOKEN}
+      - CLOUDFLARE_API_TOKEN=${CF_API_TOKEN:?API token required}
       - DOMAINS=mail.${ANONADDY_DOMAIN}
       - PROXIED=false
       # - IP6_PROVIDER=none
@@ -64,7 +64,7 @@ services:
     container_name: addy_cloudflared
     depends_on:
       - nginx
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN:?tunnel token required}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
@@ -111,9 +111,9 @@ services:
     volumes:
       - /opt/docker/addy/db/:/var/lib/mysql/
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE:?database name required}
+      MYSQL_USER: ${DB_USERNAME:?database user required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?database password required}
     command:
       - "mysqld"
       - "--character-set-server=utf8mb4"
@@ -121,6 +121,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${ADDY_DATABASE_MEM_LIMIT:-1g}
 
   db-backup:
     image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
@@ -131,9 +132,9 @@ services:
     environment:
       DB01_TYPE: mysql
       DB01_HOST: ${DB_HOST}
-      DB01_NAME: ${DB_DATABASE}
-      DB01_USER: ${DB_USERNAME}
-      DB01_PASS: ${DB_PASSWORD}
+      DB01_NAME: ${DB_DATABASE:?database name required}
+      DB01_USER: ${DB_USERNAME:?database user required}
+      DB01_PASS: ${DB_PASSWORD:?database password required}
       CONTAINER_ENABLE_MONITORING: FALSE
     extends:
       file: ../../_common/base.yaml
@@ -165,12 +166,14 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${ADDY_NGINX_MEM_LIMIT:-256m}
   valkey:
     image: valkey/valkey:8-bookworm@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571
     container_name: addy_valkey
     extends:
       file: ../../_common/base.yaml
       service: x-redis
+    mem_limit: ${ADDY_VALKEY_MEM_LIMIT:-512m}
 
 networks:
   ipv6_native:

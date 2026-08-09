@@ -12,7 +12,7 @@ x-authentik-base: &authentik-base
     AUTHENTIK_POSTGRESQL__HOST: postgresql
     AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
     AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
-    AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+    AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?database password required}
   env_file: .env
 
 services:
@@ -29,7 +29,7 @@ services:
       DB01_HOST: postgresql
       DB01_USER: ${PG_USER:-authentik}
       DB01_NAME: ${PG_DB:-authentik}
-      DB01_PASS: ${PG_PASS}
+      DB01_PASS: ${PG_PASS:?database password required}
       CONTAINER_ENABLE_MONITORING: FALSE
     env_file: .env
     extends:
@@ -49,6 +49,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-postgres
+    mem_limit: ${AUTHENTIK_POSTGRES_MEM_LIMIT:-1g}
 
   server:
     container_name: authentik_server
@@ -60,6 +61,7 @@ services:
       - '${COMPOSE_PORT_HTTPS:-9443}:9443'
     command: server
     <<: *authentik-base
+    mem_limit: ${AUTHENTIK_SERVER_MEM_LIMIT:-1g}
 
   worker:
     container_name: authentik_worker
@@ -70,3 +72,4 @@ services:
       - /opt/docker/authentik/custom-templates/:/templates/
     command: worker
     <<: *authentik-base
+    mem_limit: ${AUTHENTIK_WORKER_MEM_LIMIT:-1g}

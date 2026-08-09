@@ -11,6 +11,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${VAULTWARDEN_MEM_LIMIT:-512m}
 
 networks:
   pangolin:

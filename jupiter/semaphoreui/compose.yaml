@@ -26,7 +26,7 @@ services:
       SEMAPHORE_DB_HOST: 127.0.0.1
       SEMAPHORE_DB_NAME: ${PG_DB:-semaphore}
       SEMAPHORE_DB_USER: ${PG_USER:-semaphore}
-      SEMAPHORE_DB_PASS: ${PG_PASS}
+      SEMAPHORE_DB_PASS: ${PG_PASS:?database password required}
     env_file: .env
     network_mode: host
     extends:

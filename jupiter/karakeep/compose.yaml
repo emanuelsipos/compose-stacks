@@ -12,19 +12,21 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${KARAKEEP_CHROME_MEM_LIMIT:-1g}
 
   meilisearch:
     image: getmeili/meilisearch:v1.52.0@sha256:d36e713e8f89483af1ab0d72011bbd503f5ab100b68ccbfad51c39e3f0a0567d
     volumes:
       - /opt/docker/karakeep/meilisearch/:/meili_data/
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?master key required}
       MEILI_NO_ANALYTICS: "true"
       MEILI_UPGRADE_DB: "true"
     user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${KARAKEEP_MEILISEARCH_MEM_LIMIT:-1g}
 
   web:
     image: ghcr.io/karakeep-app/karakeep:0.33.1@sha256:5467873df817ab3aa837f2b06bd7f2b0974132ba1ae5bce0b7e2fd134abc269b
@@ -41,3 +43,4 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${KARAKEEP_MEM_LIMIT:-1g}

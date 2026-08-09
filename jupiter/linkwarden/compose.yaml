@@ -24,7 +24,7 @@ services:
     volumes:
       - /linkwarden/:/data/data/
     environment:
-      - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASS}@database.postgres:5432/${PG_DB:-postgres}
+      - DATABASE_URL=postgresql://${PG_USER:-postgres}:${PG_PASS:?database password required}@database.postgres:5432/${PG_DB:-postgres}
     env_file: .env
     ports:
       - '3000:3000'
@@ -38,7 +38,7 @@ services:
     volumes:
       - /opt/docker/linkwarden/meilisearch/:/meili_data/
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?master key required}
       MEILI_NO_ANALYTICS: "true"
       MEILI_UPGRADE_DB: "true"
     user: 1000:1000
