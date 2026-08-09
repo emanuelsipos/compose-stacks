@@ -43,7 +43,7 @@ services:
   x-byparr:
     extends:
       service: x-defaults
-    image: ghcr.io/thephaseless/byparr:2.1.0@sha256:01a46a2865d9a6db5eb8ead04ec0dd33b8fbe233e8565ae70b50d4cc0af4cfb0
+    image: ghcr.io/thephaseless/byparr:3.0.1@sha256:8bea3b3f6988d3088a10aa39961e494c169469cfab3dd9c5e3780bc30230079f
     environment:
       - TZ=${TZ}
     expose:
