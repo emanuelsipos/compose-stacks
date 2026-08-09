@@ -1,14 +1,19 @@
 ---
 services:
-  x-defaults:
+  x-runtime-defaults:
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
+    pids_limit: ${PIDS_LIMIT:-512}
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+  x-defaults:
+    extends:
+      service: x-runtime-defaults
+    security_opt:
+      - no-new-privileges:true
 
   x-postgres:
     extends:

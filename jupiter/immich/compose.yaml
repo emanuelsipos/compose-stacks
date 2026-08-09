@@ -13,6 +13,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${IMMICH_DATABASE_MEM_LIMIT:-2g}
     shm_size: 128mb
 
   immich-machine-learning:
@@ -38,6 +39,7 @@ services:
     group_add:
       - 44
       - 104
+    mem_limit: ${IMMICH_ML_MEM_LIMIT:-4g}
 
   immich-server:
     image: ghcr.io/immich-app/immich-server:v3.1.0@sha256:b434cb9287eea1471c9974845914d4dd328c9c2d652e446ed4930f99944f0ceb
@@ -66,6 +68,7 @@ services:
     group_add:
       - 44
       - 104
+    mem_limit: ${IMMICH_SERVER_MEM_LIMIT:-3g}
 
   redis:
     image: valkey/valkey:8-bookworm@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571

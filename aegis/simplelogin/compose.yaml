@@ -11,6 +11,7 @@ x-sl-base: &sl-base
     file: ../../_common/base.yaml
     service: x-defaults
   image: simplelogin/app-ci:v4.81.6@sha256:3abf622d85fbcb090566927c94733ad1a9b1edb215e3a1db61c1e2c116229ee5
+  mem_limit: ${SIMPLELOGIN_MEM_LIMIT:-1g}
   volumes:
     - /opt/docker/simplelogin/pgp/:/sl/pgp/
     - /opt/docker/simplelogin/upload/:/code/static/upload/
@@ -38,6 +39,7 @@ services:
     env_file: .env
     command: >
       certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${CERTBOT_DOMAIN1} -d ${CERTBOT_DOMAIN2} --agree-tos --non-interactive --email ${CERTBOT_EMAIL}
+    restart: "no"
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
@@ -125,6 +127,7 @@ services:
       migration:
         condition: service_completed_successfully
     command: [ "python", "init_app.py" ]
+    restart: "no"
     <<: *sl-base
 
   job-runner:
@@ -141,6 +144,7 @@ services:
       postgres:
         condition: service_healthy
     command: [ "alembic", "upgrade", "head" ]
+    restart: "no"
     <<: *sl-base
 
   nginx:
@@ -170,6 +174,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${SIMPLELOGIN_POSTFIX_MEM_LIMIT:-1g}
 
   postgres:
     image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:5d287ede0df43f7f448b7e56f8c4f6a79197318b15d90254a9d6a85eb7686fb0

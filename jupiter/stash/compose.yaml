@@ -29,3 +29,4 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${STASH_MEM_LIMIT:-2g}

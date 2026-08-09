@@ -20,12 +20,16 @@ services:
     env_file: .env
     ports:
       - '${PORT}:${PORT}'
+    networks:
+      default:
+      database:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-2g}
 
   db-backup:
     image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
@@ -40,10 +44,12 @@ services:
       DB01_HOST: mongodb
       DB02_TYPE: pgsql
       DB02_HOST: vectordb
-      DB02_NAME: ${POSTGRES_DB}
-      DB02_USER: ${POSTGRES_USER}
-      DB02_PASS: ${POSTGRES_PASSWORD}
+      DB02_NAME: ${POSTGRES_DB:?database name required}
+      DB02_USER: ${POSTGRES_USER:?database username required}
+      DB02_PASS: ${POSTGRES_PASSWORD:?database password required}
       CONTAINER_ENABLE_MONITORING: FALSE
+    networks:
+      database:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
@@ -54,24 +60,30 @@ services:
     volumes:
       - /opt/docker/librechat/meilisearch/:/meili_data/
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Meilisearch master key required}
       MEILI_NO_ANALYTICS: "true"
       MEILI_UPGRADE_DB: "true"
+    networks:
+      database:
     user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${LIBRECHAT_MEILISEARCH_MEM_LIMIT:-1g}
 
   mongodb:
     image: mongo:8@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
     container_name: LibreChat_mongodb
     volumes:
       - /opt/docker/librechat/data-node:/data/db
+    networks:
+      database:
     command: mongod --noauth
     user: 1000:1000
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${LIBRECHAT_MONGODB_MEM_LIMIT:-1g}
 
   rag-api:
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest@sha256:d6db3e38fb1afabcad6972d23d2cdc093e8a5b74797881e29e7599df93704985
@@ -82,9 +94,13 @@ services:
       - DB_HOST=vectordb
       - RAG_PORT=${RAG_PORT:-8000}
     env_file: .env
+    networks:
+      default:
+      database:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${LIBRECHAT_RAG_API_MEM_LIMIT:-3g}
 
   vectordb:
     image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
@@ -92,9 +108,16 @@ services:
     volumes:
       - /opt/docker/librechat/pgdata/:/var/lib/postgresql/data/
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?database name required}
+      POSTGRES_USER: ${POSTGRES_USER:?database username required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?database password required}
+    networks:
+      database:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-1g}
+
+networks:
+  database:
+    internal: true

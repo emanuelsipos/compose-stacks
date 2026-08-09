@@ -8,8 +8,12 @@ services:
       - /opt/docker/rustic/cache/:/.cache/rustic/
       - /opt/docker/rustic/curl:/curl
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
-      - /opt/:/backup/opt/
-      - /root/:/backup/root/
-      - /home/:/backup/home/
+      - /opt/:/backup/opt/:ro
+      - /root/:/backup/root/:ro
+      - /home/:/backup/home/:ro
     env_file: .env
     command: backup
+    restart: "no"
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
