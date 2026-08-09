@@ -19,6 +19,10 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(security_scan)
 
 
+def image_reference(repository: str, digest: str) -> str:
+    return f"{repository}:1@sha256:{digest * 64}"
+
+
 class SecurityScanTests(unittest.TestCase):
     def test_all_deployment_files_include_compose_fragments(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,15 +70,50 @@ class SecurityScanTests(unittest.TestCase):
 
             self.assertEqual(files, [shared])
 
+    def test_kics_control_changes_are_detected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            workflow = root / ".github" / "workflows" / "security-scan.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: initial\n")
+            subprocess.run(["git", "add", str(workflow)], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+            before = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            workflow.write_text("name: changed\n")
+            subprocess.run(["git", "add", str(workflow)], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "update"], cwd=root, check=True)
+
+            changed = security_scan.kics_controls_changed(before, "HEAD", root)
+
+        self.assertTrue(changed)
+
     def test_kics_scan_path_includes_fragments(self):
         root = Path("/workspace")
-        with mock.patch.object(
-            security_scan,
-            "changed_deployment_files",
-            return_value=[
-                root / "jupiter/immich/hwaccel.transcoding.yaml",
-                root / "jupiter/qbittorrent/gluetun.yaml",
-            ],
+        with (
+            mock.patch.object(
+                security_scan, "kics_controls_changed", return_value=False
+            ),
+            mock.patch.object(
+                security_scan,
+                "changed_deployment_files",
+                return_value=[
+                    root / "jupiter/immich/hwaccel.transcoding.yaml",
+                    root / "jupiter/qbittorrent/gluetun.yaml",
+                ],
+            ),
         ):
             path = security_scan.kics_scan_path(
                 "pull_request", "base", "head", root
@@ -87,14 +126,29 @@ class SecurityScanTests(unittest.TestCase):
         )
 
     def test_kics_scan_path_skips_pr_without_deployment_yaml(self):
-        with mock.patch.object(
-            security_scan, "changed_deployment_files", return_value=[]
+        with (
+            mock.patch.object(
+                security_scan, "kics_controls_changed", return_value=False
+            ),
+            mock.patch.object(
+                security_scan, "changed_deployment_files", return_value=[]
+            ),
         ):
             path = security_scan.kics_scan_path(
                 "pull_request", "base", "head", Path("/workspace")
             )
 
         self.assertIsNone(path)
+
+    def test_kics_scan_path_scans_full_repo_for_control_changes(self):
+        with mock.patch.object(
+            security_scan, "kics_controls_changed", return_value=True
+        ):
+            path = security_scan.kics_scan_path(
+                "pull_request", "base", "head", Path("/workspace")
+            )
+
+        self.assertEqual(path, ".")
 
     def test_kics_scan_path_rejects_ambiguous_filename(self):
         root = Path("/workspace")
@@ -103,6 +157,8 @@ class SecurityScanTests(unittest.TestCase):
                 security_scan,
                 "changed_deployment_files",
                 return_value=[root / "stack" / name],
+            ), mock.patch.object(
+                security_scan, "kics_controls_changed", return_value=False
             ):
                 with self.assertRaisesRegex(SystemExit, "commas or line breaks"):
                     security_scan.kics_scan_path(
@@ -121,14 +177,68 @@ class SecurityScanTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_image_matrix_is_stable_and_deduplicated(self):
-        matrix = security_scan.image_matrix(["example/a:1", "example/a:1", "example/b:2"])
+        first = image_reference("example/a", "a")
+        second = image_reference("example/b", "b")
+        matrix = security_scan.image_matrix([first, first, second])
         images = " ".join(item["images"] for item in matrix["include"]).split()
-        self.assertEqual(sorted(images), ["example/a:1", "example/b:2"])
+        self.assertEqual(sorted(images), [first, second])
         self.assertTrue(all(len(item["id"]) == 2 for item in matrix["include"]))
+
+    def test_image_discovery_accepts_valid_yaml_key_variants(self):
+        image = image_reference("example/app", "a")
+        with tempfile.TemporaryDirectory() as directory:
+            compose = Path(directory) / "compose.yaml"
+            compose.write_text(
+                "services:\n"
+                f"  first:\n    \"image\": {image}\n"
+                f"  second:\n    image : '{image}'\n"
+            )
+
+            self.assertEqual(security_scan.images_from_files([compose]), [image])
+
+    def test_image_discovery_rejects_symlinked_yaml(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "outside"
+            target.write_text("services: {}\n")
+            compose = root / "compose.yaml"
+            compose.symlink_to(target)
+
+            with self.assertRaisesRegex(ValueError, "cannot be a symlink"):
+                security_scan.images_from_files([compose])
+
+    def test_image_discovery_rejects_unsupported_image_declarations(self):
+        for declaration in (
+            "image: nginx:latest trailing",
+            '"image": >',
+            "app: {image: nginx:latest}",
+        ):
+            with self.subTest(declaration=declaration), tempfile.TemporaryDirectory() as directory:
+                compose = Path(directory) / "compose.yaml"
+                compose.write_text(f"services:\n  app:\n    {declaration}\n")
+
+                with self.assertRaisesRegex(ValueError, "Unsupported Compose image"):
+                    security_scan.images_from_files([compose])
+
+    def test_image_discovery_rejects_unsupported_mapping_keys(self):
+        for content in (
+            'services:\n  app:\n    "im\\u0061ge": nginx:latest\n',
+            'services: {app: {"im\\u0061ge": nginx:latest}}\n',
+            'services:\n  app:\n    "im\\\n      age": nginx:latest\n',
+            "services:\n  app:\n    ? image\n    : nginx:latest\n",
+            "services:\n  app:\n    !!str image: nginx:latest\n",
+            "services:\n  app:\n    *image_key: nginx:latest\n",
+        ):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
+                compose = Path(directory) / "compose.yaml"
+                compose.write_text(content)
+
+                with self.assertRaisesRegex(ValueError, "mapping key syntax"):
+                    security_scan.images_from_files([compose])
 
     def test_full_image_matrix_includes_empty_buckets(self):
         matrix = security_scan.image_matrix(
-            ["example/a:1"],
+            [image_reference("example/a", "a")],
             bucket_count=4,
             include_empty=True,
         )
@@ -152,20 +262,19 @@ class SecurityScanTests(unittest.TestCase):
         self.assertTrue(all(item["images"] == "" for item in matrix["include"]))
 
     def test_image_bucket_mapping_is_stable(self):
-        matrix = security_scan.image_matrix(["example/a:1"])
+        image = image_reference("example/a", "a")
+        matrix = security_scan.image_matrix([image])
 
-        self.assertEqual(matrix["include"], [{"id": "04", "images": "example/a:1"}])
+        self.assertEqual(matrix["include"], [{"id": "04", "images": image}])
 
-    def test_image_bucket_ignores_tag_and_digest(self):
+    def test_image_matrix_rejects_multiple_current_references_for_repository(self):
         references = [
             "ghcr.io/example/app:1@sha256:" + "a" * 64,
             "ghcr.io/example/app:2@sha256:" + "b" * 64,
         ]
 
-        matrix = security_scan.image_matrix(references)
-
-        self.assertEqual(len(matrix["include"]), 1)
-        self.assertEqual(matrix["include"][0]["images"].split(), references)
+        with self.assertRaisesRegex(ValueError, "Ambiguous current"):
+            security_scan.image_matrix(references)
 
     def test_partial_image_matrix_pairs_only_matching_baseline_repositories(self):
         current = ["ghcr.io/example/app:2@sha256:" + "b" * 64]
@@ -188,9 +297,8 @@ class SecurityScanTests(unittest.TestCase):
             "ghcr.io/example/app:2@sha256:" + "b" * 64,
         ]
 
-        matrix = security_scan.image_matrix(current, baseline_images=baseline)
-
-        self.assertEqual(matrix["include"][0]["baseline_images"], "")
+        with self.assertRaisesRegex(ValueError, "Ambiguous trusted-base"):
+            security_scan.image_matrix(current, baseline_images=baseline)
 
     def test_partial_image_matrix_rejects_ambiguous_current_repository(self):
         current = [
@@ -199,9 +307,32 @@ class SecurityScanTests(unittest.TestCase):
         ]
         baseline = ["ghcr.io/example/app:1@sha256:" + "a" * 64]
 
+        with self.assertRaisesRegex(ValueError, "Ambiguous current"):
+            security_scan.image_matrix(current, baseline_images=baseline)
+
+    def test_partial_image_matrix_allows_a_new_repository_without_baseline(self):
+        current = ["ghcr.io/example/new:1@sha256:" + "a" * 64]
+        baseline = ["ghcr.io/example/other:1@sha256:" + "b" * 64]
+
         matrix = security_scan.image_matrix(current, baseline_images=baseline)
 
         self.assertEqual(matrix["include"][0]["baseline_images"], "")
+
+    def test_image_matrix_rejects_unpinned_current_and_baseline_references(self):
+        with self.assertRaisesRegex(ValueError, "pinned"):
+            security_scan.image_matrix(["ghcr.io/example/app:1"])
+        with self.assertRaisesRegex(ValueError, "pinned"):
+            security_scan.image_matrix(
+                ["ghcr.io/example/app:2@sha256:" + "a" * 64],
+                baseline_images=["ghcr.io/example/app:1"],
+            )
+
+    def test_repository_images_are_pinned(self):
+        images = security_scan.images_from_files(
+            security_scan.all_deployment_files(SCRIPT.parents[2])
+        )
+
+        security_scan.image_matrix(images)
 
     def test_canonical_image_repository(self):
         self.assertEqual(
@@ -263,7 +394,9 @@ class SecurityScanTests(unittest.TestCase):
             stack = root / "stack"
             stack.mkdir()
             (stack / "compose.yaml").write_text(
-                "services:\n  app:\n    image: example/app:1\n"
+                "services:\n  app:\n    image: example/app:1@sha256:"
+                + "a" * 64
+                + "\n"
             )
             output = root / "github-output"
             arguments = security_scan.parser().parse_args(
@@ -290,9 +423,14 @@ class SecurityScanTests(unittest.TestCase):
             security_scan.IMAGE_BUCKET_COUNT,
         )
 
-    def test_partial_plan_limits_baseline_to_changed_paths(self):
+    def test_partial_plan_pairs_renamed_file_with_full_base_inventory(self):
         root = Path("/workspace")
-        files = [root / "stack/compose.yaml"]
+        files = [root / "renamed" / "compose.yaml"]
+        current = ["ghcr.io/example/app:2@sha256:" + "b" * 64]
+        baseline_images = [
+            "ghcr.io/example/app:1@sha256:" + "a" * 64,
+            "ghcr.io/example/other:1@sha256:" + "c" * 64,
+        ]
         arguments = security_scan.parser().parse_args(
             [
                 "plan",
@@ -311,18 +449,21 @@ class SecurityScanTests(unittest.TestCase):
                 security_scan, "image_scan_files", return_value=(files, False)
             ),
             mock.patch.object(
-                security_scan, "images_from_files", return_value=["example/app:2"]
+                security_scan, "images_from_files", return_value=current
             ),
             mock.patch.object(
                 security_scan,
                 "images_from_git_ref",
-                return_value=["example/app:1"],
+                return_value=baseline_images,
             ) as baseline,
-            mock.patch.object(security_scan, "write_output"),
+            mock.patch.object(security_scan, "write_output") as write_output,
         ):
             security_scan.plan(arguments)
 
-        baseline.assert_called_once_with("base", root, files)
+        baseline.assert_called_once_with("base", root)
+        outputs = {call.args[0]: call.args[1] for call in write_output.call_args_list}
+        matrix = json.loads(outputs["matrix"])
+        self.assertEqual(matrix["include"][0]["baseline_images"], baseline_images[0])
 
     def test_combine_sarif_merges_runs_and_remaps_indices(self):
         combined = security_scan.combine_sarif(
@@ -591,29 +732,7 @@ class SecurityScanTests(unittest.TestCase):
             ["--exclude-severities", "medium,low", "--exclude-results", "one,two"],
         )
 
-    def test_exclusion_ids_ignore_documentation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.invalid"],
-                cwd=root,
-                check=True,
-            )
-            exclusions = root / ".kics-exclude"
-            exclusions.mkdir()
-            (exclusions / "README.md").write_text("# Documentation\n")
-            similarity_id = "a" * 64
-            (exclusions / "HIGH_finding").write_text(f"{similarity_id}\n")
-            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
-
-            values = security_scan.exclusion_ids(root, "HEAD")
-
-            self.assertEqual(values, [similarity_id])
-
-    def test_kics_fingerprint_is_line_stable_and_content_specific(self):
+    def test_kics_fingerprint_is_occurrence_specific(self):
         finding = {
             "file_name": "stack/compose.yaml",
             "line": 10,
@@ -626,7 +745,7 @@ class SecurityScanTests(unittest.TestCase):
         moved = dict(finding, line=20, similarity_id="b" * 64)
         distinct = dict(finding, search_key="services.worker.privileged")
 
-        self.assertEqual(
+        self.assertNotEqual(
             security_scan.kics_finding_fingerprint("query", finding),
             security_scan.kics_finding_fingerprint("query", moved),
         )
@@ -634,12 +753,15 @@ class SecurityScanTests(unittest.TestCase):
             security_scan.kics_finding_fingerprint("query", finding),
             security_scan.kics_finding_fingerprint("query", distinct),
         )
-        self.assertNotEqual(
-            security_scan.kics_finding_fingerprint("query", finding, 0),
-            security_scan.kics_finding_fingerprint("query", finding, 1),
+        expected = "\0".join(
+            ["kics-finding-v2", *security_scan.kics_finding_identity("query", finding)]
+        )
+        self.assertEqual(
+            security_scan.kics_finding_fingerprint("query", finding),
+            hashlib.sha256(expected.encode()).hexdigest(),
         )
 
-    def test_kics_filter_suppresses_only_reviewed_duplicate_occurrence(self):
+    def test_kics_filter_never_suppresses_duplicate_identities_regardless_of_order(self):
         finding = {
             "file_name": "stack/compose.yaml",
             "line": 10,
@@ -650,60 +772,216 @@ class SecurityScanTests(unittest.TestCase):
             "actual_value": "sensitive",
         }
         query_id = "query-id"
-        json_document = {
-            "queries": [{"query_id": query_id, "files": [finding, finding.copy()]}]
-        }
-        sarif_result = {
-            "ruleId": query_id,
-            "message": {"text": "sensitive"},
-            "locations": [{"physicalLocation": {
-                "artifactLocation": {"uri": "stack/compose.yaml"},
-                "region": {"startLine": 10},
-            }}],
-        }
-        sarif_document = {"runs": [{"results": [sarif_result, sarif_result.copy()]}]}
-        reviewed = {security_scan.kics_finding_fingerprint(query_id, finding, 0)}
+        duplicate = dict(finding, similarity_id="b" * 64)
+        reviewed = {security_scan.kics_finding_fingerprint(query_id, finding)}
 
-        filtered_json, suppressed, findings = security_scan.filter_kics_json(
-            json_document, reviewed
-        )
-        filtered_sarif = security_scan.filter_kics_sarif(
-            sarif_document, suppressed, findings
-        )
+        for files in ([finding, duplicate], [duplicate, finding]):
+            with self.subTest(files=files):
+                filtered_json, suppressed, findings = security_scan.filter_kics_json(
+                    {"queries": [{"query_id": query_id, "files": files}]}, reviewed
+                )
+                filtered_sarif = security_scan.filter_kics_sarif(
+                    {"runs": [{"results": [
+                        {
+                            "ruleId": query_id,
+                            "message": {"text": "sensitive"},
+                            "locations": [{"physicalLocation": {
+                                "artifactLocation": {"uri": "stack/compose.yaml"},
+                                "region": {"startLine": item["line"]},
+                            }}],
+                        }
+                        for item in files
+                    ]}]},
+                    suppressed,
+                    findings,
+                )
 
-        self.assertEqual(len(filtered_json["queries"][0]["files"]), 1)
-        self.assertEqual(len(filtered_sarif["runs"][0]["results"]), 2)
+                self.assertEqual(filtered_json["queries"][0]["files"], files)
+                self.assertEqual(sum(suppressed.values()), 0)
+                self.assertEqual(sum(findings.values()), 2)
+                self.assertEqual(len(filtered_sarif["runs"][0]["results"]), 2)
 
-    def test_legacy_exclusion_maps_only_exact_similarity_id(self):
-        first = {
+    def test_kics_filter_suppresses_a_unique_reviewed_identity(self):
+        finding = {
             "file_name": "stack/compose.yaml",
-            "similarity_id": "a" * 64,
+            "line": 10,
             "issue_type": "IncorrectValue",
-            "search_key": "services.first.privileged",
+            "search_key": "services.app.privileged",
             "expected_value": "false",
             "actual_value": "true",
         }
-        second = dict(
-            first,
-            similarity_id="b" * 64,
-            search_key="services.second.privileged",
-        )
-        baseline = {
-            "queries": [{"query_id": "query-id", "files": [first, second]}]
-        }
-        records = [{"fingerprints": [], "similarity_id": "a" * 64}]
+        query_id = "query-id"
 
-        with mock.patch.object(
-            security_scan, "exclusion_records", return_value=records
-        ):
+        filtered_json, suppressed, findings = security_scan.filter_kics_json(
+            {"queries": [{"query_id": query_id, "files": [finding]}]},
+            {security_scan.kics_finding_fingerprint(query_id, finding)},
+        )
+        filtered_sarif = security_scan.filter_kics_sarif(
+            {"runs": [{"results": [{
+                "ruleId": query_id,
+                "message": {"text": "true"},
+                "locations": [{"physicalLocation": {
+                    "artifactLocation": {"uri": "stack/compose.yaml"},
+                    "region": {"startLine": 10},
+                }}],
+            }]}]},
+            suppressed,
+            findings,
+        )
+
+        self.assertEqual(filtered_json["queries"][0]["files"], [])
+        self.assertEqual(sum(suppressed.values()), 1)
+        self.assertEqual(filtered_sarif["runs"][0]["results"], [])
+
+    def test_kics_filter_does_not_reuse_approval_at_a_new_location(self):
+        reviewed = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "search_line": 10,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        replacement = dict(reviewed, line=20, search_line=20)
+        query_id = "query-id"
+
+        filtered, suppressed, _ = security_scan.filter_kics_json(
+            {"queries": [{"query_id": query_id, "files": [replacement]}]},
+            {security_scan.kics_finding_fingerprint(query_id, reviewed)},
+        )
+
+        self.assertEqual(filtered["queries"][0]["files"], [replacement])
+        self.assertEqual(sum(suppressed.values()), 0)
+
+    def test_v1_exclusion_resolves_only_through_exact_trusted_base_location(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "search_line": 11,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        query_id = "query-id"
+        v1 = security_scan.kics_finding_v1_fingerprint(query_id, finding, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            (exclusions / "legacy").write_text(
+                "a" * 64
+                + f"\n{query_id}\nstack/compose.yaml\nfinding-v1:{v1}\n"
+            )
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+            baseline = {"queries": [{"query_id": query_id, "files": [finding]}]}
+
             fingerprints = security_scan.exclusion_fingerprints(
-                Path("/workspace"), "main", baseline
+                root, "HEAD", baseline
             )
 
-        self.assertEqual(
+        exact_v2 = security_scan.kics_finding_fingerprint(query_id, finding)
+        self.assertEqual(fingerprints, {exact_v2})
+        moved = dict(finding, line=20, search_line=21)
+        filtered, suppressed, _ = security_scan.filter_kics_json(
+            {"queries": [{"query_id": query_id, "files": [moved]}]},
             fingerprints,
-            {security_scan.kics_finding_fingerprint("query-id", first)},
         )
+        self.assertEqual(filtered["queries"][0]["files"], [moved])
+        self.assertEqual(sum(suppressed.values()), 0)
+
+    def test_v1_exclusion_requires_trusted_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            (exclusions / "legacy").write_text(
+                "a" * 64
+                + "\nquery-id\nstack/compose.yaml\nfinding-v1:"
+                + "b" * 64
+                + "\n"
+            )
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+
+            with self.assertRaisesRegex(ValueError, "Trusted-base KICS JSON"):
+                security_scan.exclusion_fingerprints(root, "HEAD")
+
+    def test_v1_exclusion_fails_closed_on_ambiguous_baseline_fingerprint(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "issue_type": "IncorrectValue",
+        }
+        query_id = "query-id"
+        v1 = security_scan.kics_finding_v1_fingerprint(query_id, finding, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            (exclusions / "legacy").write_text(
+                "a" * 64
+                + f"\n{query_id}\nstack/compose.yaml\nfinding-v1:{v1}\n"
+            )
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+            baseline = {
+                "queries": [
+                    {"query_id": query_id, "files": [finding]},
+                    {"query_id": query_id, "files": [finding]},
+                ]
+            }
+
+            fingerprints = security_scan.exclusion_fingerprints(
+                root, "HEAD", baseline
+            )
+
+        self.assertEqual(fingerprints, set())
+
+    def test_three_line_similarity_record_is_not_migrated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            (exclusions / "legacy").write_text(
+                "a" * 64 + "\nquery-id\nstack/compose.yaml\n"
+            )
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+
+            fingerprints = security_scan.exclusion_fingerprints(root, "HEAD")
+
+        self.assertEqual(fingerprints, set())
 
     def test_sarif_difference_keeps_only_new_vulnerability_identities(self):
         def result(identity):
