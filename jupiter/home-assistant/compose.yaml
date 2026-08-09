@@ -11,6 +11,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${HOMEASSISTANT_MEM_LIMIT:-1g}
 
   matter-server:
     image: ghcr.io/matter-js/python-matter-server:8.1.2@sha256:6827e352011e2d8c2bde771e446fcf72acc49150ef66bad978816bac1762aad3
@@ -22,3 +23,4 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${MATTER_SERVER_MEM_LIMIT:-1g}

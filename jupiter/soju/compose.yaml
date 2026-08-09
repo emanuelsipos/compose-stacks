@@ -7,6 +7,7 @@ services:
       - /opt/docker/soju/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
     command: >
       certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${HOSTNAME} --agree-tos --non-interactive
+    restart: "no"
     extends:
       file: ../../_common/base.yaml
       service: x-defaults

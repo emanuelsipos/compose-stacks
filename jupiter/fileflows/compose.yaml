@@ -42,7 +42,8 @@ services:
       - /dev/dri:/dev/dri/
     extends:
       file: ../../_common/base.yaml
-      service: x-defaults
+      service: x-runtime-defaults
+    mem_limit: ${FILEFLOWS_MEM_LIMIT:-4g}
     security_opt:
       - no-new-privileges:false
 

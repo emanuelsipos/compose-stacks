@@ -23,6 +23,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${FRIGATE_MEM_LIMIT:-4g}
     # privileged: true # this may not be necessary for all setups
     # cap_add:
     #   - CAP_PERFMON

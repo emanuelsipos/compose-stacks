@@ -18,6 +18,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${ADGUARDHOME_MEM_LIMIT:-1g}
 
   certbot:
     image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
@@ -27,6 +28,7 @@ services:
       - /opt/docker/adguard/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
     command: >
       certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${DNS_DOMAIN} -d *.${DNS_DOMAIN} --agree-tos --non-interactive
+    restart: "no"
     extends:
       file: ../../_common/base.yaml
       service: x-defaults

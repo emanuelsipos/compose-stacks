@@ -11,6 +11,10 @@ Docker Compose definitions for services running across a small self-hosted envir
 
 These files reflect a real deployment and are not intended to be used unchanged. Host paths, device mappings, network addresses, and environment variables must be adapted first. Komodo supplies each stack's environment at deployment time; deployment `.env` files are not stored in this repository.
 
+## Resource overrides
+
+All services inheriting the shared defaults receive a `PIDS_LIMIT` of 512 unless the deployment overrides it. The Docker-in-Docker GitHub runner instead uses `${RUNNER_PIDS_LIMIT:-2048}` to accommodate build process trees. Higher-risk or heavier services have an individual `${SERVICE_MEM_LIMIT:-default}` memory ceiling. Set the relevant `*_MEM_LIMIT` deployment variable (for example, `PLEX_MEM_LIMIT=6g`) to size that service for its workload; do not remove the limit globally.
+
 Images are pinned and updated by Renovate. CI runs Compose linting, secret detection, misconfiguration checks, and vulnerability scans. Scanner results are published to GitHub code scanning; reviewed KICS exceptions and their compensating controls are documented in [`SECURITY.md`](SECURITY.md).
 
 Run `pre-commit install` to apply dclint fixes before each local commit. CI also opens an autofix PR when a push to `main` introduces a fixable lint issue.

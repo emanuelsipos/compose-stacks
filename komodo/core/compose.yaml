@@ -10,8 +10,8 @@ services:
       - /opt/docker/komodo/backups/:/backups/
     environment:
       KOMODO_DATABASE_ADDRESS: mongo:27017
-      KOMODO_DATABASE_USERNAME: ${KOMODO_DB_USERNAME}
-      KOMODO_DATABASE_PASSWORD: ${KOMODO_DB_PASSWORD}
+      KOMODO_DATABASE_USERNAME: ${KOMODO_DB_USERNAME:?database username required}
+      KOMODO_DATABASE_PASSWORD: ${KOMODO_DB_PASSWORD:?database password required}
     env_file: .env
     ports:
       - '9120:9120'
@@ -23,6 +23,7 @@ services:
       file: ../../_common/base.yaml
       service: x-defaults
     init: true
+    mem_limit: ${KOMODO_CORE_MEM_LIMIT:-1g}
 
   mongo:
     image: mongo:8@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
@@ -31,11 +32,12 @@ services:
       - /opt/docker/komodo/mongo-data/:/data/db/
       - /opt/docker/komodo/mongo-config/:/data/configdb/
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME:?database username required}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD:?database password required}
     command: --quiet --wiredTigerCacheSizeGB 0.25
     labels:
       - komodo.skip
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    mem_limit: ${KOMODO_MONGO_MEM_LIMIT:-1g}
