@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EXCLUDE_DIR = ROOT / ".kics-exclude"
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
 QUERY_ID = re.compile(r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
-FINGERPRINT = re.compile(r"^finding-v1:([a-f0-9]{64})$")
+FINGERPRINT = re.compile(r"^finding-v2:([a-f0-9]{64})$")
 
 
 def compose_paths() -> list[Path]:

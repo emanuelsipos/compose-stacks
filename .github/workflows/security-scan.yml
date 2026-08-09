@@ -69,7 +69,14 @@ jobs:
         run: python3 .github/scripts/security_scan.py verify-kics-pins
 
       - name: Fetch reviewed KICS suppressions
-        run: git fetch origin main --depth=1 --no-tags --filter=blob:none
+        run: >-
+          git fetch origin
+          +refs/heads/main:refs/remotes/origin/main
+          --depth=1 --no-tags --filter=blob:none
+
+      - name: Plan trusted suppression migration
+        id: kics-exclusions
+        run: python3 .github/scripts/security_scan.py kics-exclusions-plan
 
       # Resolve the KICS scan path from git rather than interpolating
       # pull-request-controlled filenames into shell source. PRs scan every
@@ -162,14 +169,18 @@ jobs:
           set -e
           echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
 
-      # Legacy suppressions are resolved only against the trusted base revision,
-      # which freezes the accepted occurrences without covering new findings.
-      - name: Scan trusted base for legacy suppression migration
-        if: github.event_name == 'pull_request' && hashFiles('kics-results/results.json') != ''
+      # finding-v1 records are converted only from their exact occurrence in
+      # the trusted base. The location-bound v2 result cannot suppress a moved
+      # or replaced finding in the pull request.
+      - name: Scan trusted base for suppression migration
+        if: |
+          steps.kics-exclusions.outputs.needs_baseline == 'true' &&
+          hashFiles('kics-results/results.json') != ''
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git worktree add --detach "$RUNNER_TEMP/kics-base" "$BASE_SHA"
+          TRUSTED_REF="${BASE_SHA:-origin/main}"
+          git worktree add --detach "$RUNNER_TEMP/kics-base" "$TRUSTED_REF"
           python3 .github/scripts/security_scan.py kics \
             --root "$RUNNER_TEMP/kics-base" \
             --path . \
@@ -182,7 +193,7 @@ jobs:
       - name: Apply reviewed KICS finding suppressions
         if: always() && hashFiles('kics-results/results.sarif') != ''
         env:
-          BASELINE_JSON: ${{ github.event_name == 'pull_request' && 'kics-base-results/results.json' || '' }}
+          TRUSTED_BASELINE_JSON: ${{ steps.kics-exclusions.outputs.needs_baseline == 'true' && 'kics-base-results/results.json' || '' }}
         run: |
           args=(
             filter-kics
@@ -191,8 +202,8 @@ jobs:
             --json-output kics-results/results.filtered.json
             --sarif-output kics-results/results.filtered.sarif
           )
-          if [ -n "$BASELINE_JSON" ]; then
-            args+=(--baseline-json "$BASELINE_JSON")
+          if [ -n "$TRUSTED_BASELINE_JSON" ]; then
+            args+=(--trusted-baseline-json "$TRUSTED_BASELINE_JSON")
           fi
           python3 .github/scripts/security_scan.py "${args[@]}"
 
@@ -207,6 +218,10 @@ jobs:
       # Skipped when dry_run=true so no side-effects are left behind.
       - name: Format summary comment
         if: always() && github.event_name != 'pull_request'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SELECTED_SCANNERS: ${{ inputs.scanners }}
         run: |
           # KICS
           if [ -f kics-results/results.filtered.json ]; then
@@ -230,14 +245,14 @@ jobs:
 
           # Append a banner when this was a manual dry-run
           DRY_NOTE=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
             DRY_NOTE="> ⚠️ **Dry run** — results are shown for visibility only. No PRs were opened."$'\n\n'
           fi
 
           # Append which scanners were selected (workflow_dispatch only)
           SCANNER_NOTE=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.scanners }}" != "all" ]; then
-            SCANNER_NOTE="> ℹ️ **Partial scan** — only \`${{ inputs.scanners }}\` ran this time."$'\n\n'
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$SELECTED_SCANNERS" != "all" ]; then
+            SCANNER_NOTE="> ℹ️ **Partial scan** — only \`$SELECTED_SCANNERS\` ran this time."$'\n\n'
           fi
 
           cat <<COMMENT > misconfig-summary.md
@@ -267,7 +282,7 @@ jobs:
             github.event_name != 'workflow_dispatch' ||
             inputs.dry_run == false
           )
-        run: cat misconfig-summary.md >> $GITHUB_STEP_SUMMARY
+        run: cat misconfig-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # ── Block on CRITICAL/HIGH ─────────────────────────────────────────
       # Always runs regardless of trigger or dry_run — findings are findings.
@@ -364,6 +379,9 @@ jobs:
 
       - name: Format Trivy summary
         if: always() && github.event_name != 'pull_request'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           trivy fs . \
             --scanners vuln \
@@ -377,7 +395,7 @@ jobs:
           TRIVY_BODY=$(cat trivy-table.txt 2>/dev/null || echo "No results.")
 
           DRY_NOTE=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
             DRY_NOTE="> ⚠️ **Dry run** — results are shown for visibility only. No PRs were opened."$'\n\n'
           fi
 
@@ -400,7 +418,7 @@ jobs:
             github.event_name != 'workflow_dispatch' ||
             inputs.dry_run == false
           )
-        run: cat vuln-summary.md >> $GITHUB_STEP_SUMMARY
+        run: cat vuln-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Block on CRITICAL/HIGH CVEs
         if: always()

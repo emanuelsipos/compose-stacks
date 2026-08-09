@@ -20,15 +20,30 @@ from pathlib import Path
 
 
 DEPLOYMENT_SUFFIXES = {".yaml", ".yml"}
+KICS_CONTROL_PATHS = (
+    ".kics-exclude/",
+    "kics-config.yaml",
+    ".github/scripts/security_scan.py",
+    ".github/scripts/validate-kics-exclusions.py",
+    ".github/workflows/security-scan.yml",
+)
 IMAGE_BUCKET_COUNT = 16
-IMAGE_LINE = re.compile(r"^\s*image:\s*[\"']?([^\"'\s]+)")
+IMAGE_KEY = re.compile(r'''^\s*(?:image|"image"|'image')\s*:''')
+IMAGE_LINE = re.compile(
+    r'''^\s*(?:image|"image"|'image')\s*:\s*'''
+    r'''(?P<quote>["']?)(?P<image>[^\s"'#]+)(?P=quote)\s*(?:#.*)?$'''
+)
+FLOW_IMAGE_KEY = re.compile(r'''(?:^|[{,])\s*(?:image|"image"|'image')\s*:''')
+ESCAPED_MAPPING_KEY = re.compile(r'''(?:^|[{,])\s*"[^"]*\\[^"]*"\s*:''')
+ESCAPED_MAPPING_KEY_START = re.compile(r'''(?:^|[{,])\s*"[^"]*\\''')
+COMPLEX_MAPPING_KEY = re.compile(r"(?:^|[{,])\s*[?*!&]")
 PACKAGE_LINE = re.compile(r"^Package:\s*(.+)$", re.MULTILINE)
 SARIF_SCHEMA = (
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/"
     "cs01/schemas/sarif-schema-2.1.0.json"
 )
-SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
-KICS_FINGERPRINT = re.compile(r"^finding-v1:([a-f0-9]{64})$")
+KICS_FINGERPRINT = re.compile(r"^finding-v([12]):([a-f0-9]{64})$")
+PINNED_IMAGE_REFERENCE = re.compile(r"^[^@\s]+@sha256:[a-f0-9]{64}$")
 KICS_QUERY_REF = re.compile(
     r"repository:\s*Checkmarx/kics\s*\n\s*ref:\s*[a-f0-9]{40}\s*#\s*v([^\s]+)"
 )
@@ -78,8 +93,21 @@ def all_deployment_files(root: Path) -> list[Path]:
     )
 
 
+def kics_controls_changed(before: str, after: str, root: Path) -> bool:
+    result = subprocess.run(
+        ["git", "diff", "--quiet", before, after, "--", *KICS_CONTROL_PATHS],
+        cwd=root,
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        raise subprocess.CalledProcessError(result.returncode, result.args)
+    return result.returncode == 1
+
+
 def kics_scan_path(event: str, base: str, head: str, root: Path) -> str | None:
     if event != "pull_request":
+        return "."
+    if kics_controls_changed(base, head, root):
         return "."
     files = changed_deployment_files(base, head, root)
     relative_paths = [path.relative_to(root).as_posix() for path in files]
@@ -91,9 +119,9 @@ def kics_scan_path(event: str, base: str, head: str, root: Path) -> str | None:
 def images_from_files(files: list[Path]) -> list[str]:
     images: set[str] = set()
     for path in files:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if match := IMAGE_LINE.match(line):
-                images.add(match.group(1))
+        if path.is_symlink():
+            raise ValueError(f"Deployment YAML cannot be a symlink: {path}")
+        images.update(images_from_text(path.read_text(encoding="utf-8")))
     return sorted(images)
 
 
@@ -103,33 +131,69 @@ def images_from_git_ref(
     if files is not None and not files:
         return []
     images: set[str] = set()
-    paths = (
-        [f":(literal){path.relative_to(root).as_posix()}" for path in files]
-        if files is not None
-        else [
-            ":(glob)**/*.yaml",
-            ":(glob)**/*.yml",
-            ":(exclude).github/**",
-        ]
-    )
-    result = subprocess.run(
-        ["git", "grep", "-h", "-E", r"^[[:space:]]*image:", ref, "--", *paths],
-        cwd=root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode not in {0, 1}:
-        raise subprocess.CalledProcessError(
-            result.returncode,
-            result.args,
-            output=result.stdout,
-            stderr=result.stderr,
+    if files is None:
+        result = subprocess.run(
+            ["git", "ls-tree", "-r", "-z", "--name-only", ref],
+            cwd=root,
+            check=True,
+            capture_output=True,
         )
-    for line in result.stdout.splitlines():
-        if match := IMAGE_LINE.match(line):
-            images.add(match.group(1))
+        paths = [
+            name.decode(errors="surrogateescape")
+            for name in result.stdout.split(b"\0")
+            if name
+            and Path(name.decode(errors="surrogateescape")).suffix
+            in DEPLOYMENT_SUFFIXES
+            and ".github"
+            not in Path(name.decode(errors="surrogateescape")).parts
+            and ".kics-exclude"
+            not in Path(name.decode(errors="surrogateescape")).parts
+        ]
+    else:
+        paths = [path.relative_to(root).as_posix() for path in files]
+    for path in paths:
+        result = subprocess.run(
+            ["git", "show", f"{ref}:{path}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        images.update(images_from_text(result.stdout))
     return sorted(images)
+
+
+def images_from_text(content: str) -> set[str]:
+    images: set[str] = set()
+    for line in content.splitlines():
+        if (
+            ESCAPED_MAPPING_KEY.search(line)
+            or ESCAPED_MAPPING_KEY_START.search(line)
+            or COMPLEX_MAPPING_KEY.search(line)
+        ):
+            raise ValueError(
+                "Unsupported Compose mapping key syntax: " + line.strip()
+            )
+        if image := image_from_line(line):
+            images.add(image)
+        elif FLOW_IMAGE_KEY.search(line):
+            raise ValueError(
+                "Unsupported Compose image declaration (flow style): "
+                + line.strip()
+            )
+    return images
+
+
+def image_from_line(line: str) -> str | None:
+    if not IMAGE_KEY.match(line):
+        return None
+    match = IMAGE_LINE.match(line)
+    if not match:
+        raise ValueError(f"Unsupported Compose image declaration: {line.strip()}")
+    image = match.group("image")
+    if image in {"|", "|-", "|+", ">", ">-", ">+"}:
+        raise ValueError(f"Unsupported Compose image declaration: {line.strip()}")
+    return image
 
 
 def canonical_image_repository(image: str) -> str:
@@ -154,6 +218,42 @@ def image_matrix(
     include_empty: bool = False,
     baseline_images: list[str] | None = None,
 ) -> dict[str, list[dict[str, str]]]:
+    current_by_repository: dict[str, set[str]] = {}
+    for image in images:
+        current_by_repository.setdefault(canonical_image_repository(image), set()).add(
+            image
+        )
+    ambiguous_current = sorted(
+        repository
+        for repository, references in current_by_repository.items()
+        if len(references) > 1
+    )
+    if ambiguous_current:
+        raise ValueError(
+            "Ambiguous current image reference(s) for repository: "
+            + ", ".join(ambiguous_current)
+        )
+    for references in current_by_repository.values():
+        validate_pinned_image(next(iter(references)))
+
+    baseline_by_repository: dict[str, set[str]] = {}
+    for image in baseline_images or []:
+        repository = canonical_image_repository(image)
+        if repository in current_by_repository:
+            baseline_by_repository.setdefault(repository, set()).add(image)
+    ambiguous_baseline = sorted(
+        repository
+        for repository, references in baseline_by_repository.items()
+        if len(references) > 1
+    )
+    if ambiguous_baseline:
+        raise ValueError(
+            "Ambiguous trusted-base image reference(s) for repository: "
+            + ", ".join(ambiguous_baseline)
+        )
+    for references in baseline_by_repository.values():
+        validate_pinned_image(next(iter(references)))
+
     buckets: dict[int, list[str]] = {}
     for image in sorted(set(images)):
         repository = canonical_image_repository(image)
@@ -163,27 +263,17 @@ def image_matrix(
         )
         buckets.setdefault(bucket, []).append(image)
     bucket_ids = range(bucket_count) if include_empty else sorted(buckets)
-    baseline_by_repository: dict[str, list[str]] = {}
-    for image in sorted(set(baseline_images or [])):
-        baseline_by_repository.setdefault(canonical_image_repository(image), []).append(image)
-
     entries: list[dict[str, str]] = []
     for bucket in bucket_ids:
         bucket_images = buckets.get(bucket, [])
-        current_by_repository: dict[str, list[str]] = {}
-        for image in bucket_images:
-            current_by_repository.setdefault(
-                canonical_image_repository(image), []
-            ).append(image)
         entry = {"id": f"{bucket:02d}", "images": " ".join(bucket_images)}
         if baseline_images is not None:
             entry["baseline_images"] = " ".join(
-                matches[0]
-                for repository, current_matches in sorted(
-                    current_by_repository.items()
+                next(iter(baseline_by_repository[repository]))
+                for repository in sorted(
+                    canonical_image_repository(image) for image in bucket_images
                 )
-                if len(current_matches) == 1
-                and len(matches := baseline_by_repository.get(repository, [])) == 1
+                if repository in baseline_by_repository
             )
         entries.append(entry)
     return {"include": entries}
@@ -198,19 +288,44 @@ def kics_finding_identity(query_id: str, finding: dict) -> tuple[str, ...]:
         str(finding.get("search_key", "")),
         str(finding.get("expected_value", "")),
         str(finding.get("actual_value", "")),
+        str(finding.get("line", 0)),
+        str(finding.get("search_line", 0)),
     )
 
 
-def kics_finding_fingerprint(
-    query_id: str, finding: dict, occurrence: int = 0
-) -> str:
+def kics_finding_content_identity(query_id: str, finding: dict) -> tuple[str, ...]:
+    return kics_finding_identity(query_id, finding)[:-2]
+
+
+def validate_pinned_image(image: str) -> None:
+    if not PINNED_IMAGE_REFERENCE.fullmatch(image):
+        raise ValueError(
+            "Image reference must be pinned by @sha256:<64 lowercase hex>: "
+            + image
+        )
+
+
+def kics_finding_fingerprint(query_id: str, finding: dict) -> str:
     identity = "\0".join(
-        ["kics-finding-v1", *kics_finding_identity(query_id, finding), str(occurrence)]
+        ["kics-finding-v2", *kics_finding_identity(query_id, finding)]
     )
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
-def exclusion_records(root: Path, ref: str) -> list[dict[str, str | list[str]]]:
+def kics_finding_v1_fingerprint(
+    query_id: str, finding: dict, occurrence: int
+) -> str:
+    identity = "\0".join(
+        [
+            "kics-finding-v1",
+            *kics_finding_content_identity(query_id, finding),
+            str(occurrence),
+        ]
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def exclusion_records(root: Path, ref: str) -> list[dict[str, str]]:
     result = subprocess.run(
         ["git", "ls-tree", "-r", "--name-only", ref, "--", ".kics-exclude/"],
         cwd=root,
@@ -218,7 +333,7 @@ def exclusion_records(root: Path, ref: str) -> list[dict[str, str | list[str]]]:
         capture_output=True,
         text=True,
     )
-    records: list[dict[str, str | list[str]]] = []
+    records: list[dict[str, str]] = []
     for name in result.stdout.splitlines():
         if name.endswith("/README.md"):
             continue
@@ -230,51 +345,62 @@ def exclusion_records(root: Path, ref: str) -> list[dict[str, str | list[str]]]:
             text=True,
         ).stdout
         lines = content.splitlines()
+        version = ""
+        fingerprint = ""
+        if len(lines) == 4 and (
+            match := KICS_FINGERPRINT.fullmatch(lines[3].strip())
+        ):
+            version, fingerprint = match.groups()
         records.append(
             {
                 "name": Path(name).name,
                 "similarity_id": lines[0].strip() if lines else "",
                 "query_id": lines[1].strip() if len(lines) >= 2 else "",
                 "file_name": lines[2].strip() if len(lines) >= 3 else "",
-                "fingerprints": [
-                    match.group(1)
-                    for line in lines[3:]
-                    if (match := KICS_FINGERPRINT.fullmatch(line.strip()))
-                ],
+                "version": version,
+                "fingerprint": fingerprint,
             }
         )
     return records
 
 
 def exclusion_fingerprints(
-    root: Path, ref: str, baseline: dict | None = None
+    root: Path, ref: str, trusted_baseline: dict | None = None
 ) -> set[str]:
     records = exclusion_records(root, ref)
     fingerprints = {
-        fingerprint
-        for record in records
-        for fingerprint in record["fingerprints"]
+        record["fingerprint"] for record in records if record["version"] == "2"
     }
-    legacy = [record for record in records if not record["fingerprints"]]
-    if not legacy or baseline is None:
+    trusted_v1 = [record for record in records if record["version"] == "1"]
+    if not trusted_v1:
         return fingerprints
+    if trusted_baseline is None:
+        raise ValueError(
+            "Trusted-base KICS JSON is required to resolve finding-v1 records"
+        )
 
-    for query in baseline.get("queries", []):
+    v1_to_v2: dict[str, list[str]] = {}
+    for query in trusted_baseline.get("queries", []):
+        query_id = str(query.get("query_id", ""))
         occurrences: Counter[tuple[str, ...]] = Counter()
         for finding in query.get("files", []):
-            identity = kics_finding_identity(query.get("query_id", ""), finding)
+            identity = kics_finding_content_identity(query_id, finding)
             occurrence = occurrences[identity]
             occurrences[identity] += 1
-            if any(
-                record["similarity_id"] == finding.get("similarity_id")
-                for record in legacy
-            ):
-                fingerprints.add(
-                    kics_finding_fingerprint(
-                        query.get("query_id", ""), finding, occurrence
-                    )
-                )
+            v1 = kics_finding_v1_fingerprint(query_id, finding, occurrence)
+            v1_to_v2.setdefault(v1, []).append(
+                kics_finding_fingerprint(query_id, finding)
+            )
+
+    for record in trusted_v1:
+        matches = v1_to_v2.get(record["fingerprint"], [])
+        if len(matches) == 1:
+            fingerprints.add(matches[0])
     return fingerprints
+
+
+def trusted_exclusions_need_baseline(root: Path, ref: str) -> bool:
+    return any(record["version"] == "1" for record in exclusion_records(root, ref))
 
 
 def filter_kics_json(
@@ -287,15 +413,16 @@ def filter_kics_json(
     filtered = copy.deepcopy(document)
     suppressed: Counter[tuple[str, str, int, str]] = Counter()
     findings: Counter[tuple[str, str, int, str]] = Counter()
+    identity_counts = Counter(
+        kics_finding_identity(query.get("query_id", ""), finding)
+        for query in filtered.get("queries", [])
+        for finding in query.get("files", [])
+    )
     for query in filtered.get("queries", []):
         query_id = query.get("query_id", "")
-        occurrences: Counter[tuple[str, ...]] = Counter()
         kept = []
         for finding in query.get("files", []):
             identity = kics_finding_identity(query_id, finding)
-            occurrence = occurrences[identity]
-            occurrences[identity] += 1
-            fingerprint = kics_finding_fingerprint(query_id, finding, occurrence)
             sarif_key = (
                 query_id,
                 str(finding.get("file_name", ""))
@@ -305,7 +432,10 @@ def filter_kics_json(
                 str(finding.get("actual_value", "")),
             )
             findings[sarif_key] += 1
-            if fingerprint in fingerprints:
+            if (
+                identity_counts[identity] == 1
+                and kics_finding_fingerprint(query_id, finding) in fingerprints
+            ):
                 suppressed[sarif_key] += 1
             else:
                 kept.append(finding)
@@ -546,29 +676,6 @@ def combine_sarif_files(files: list[Path]) -> dict:
     return combine_sarif(documents) if documents else empty_sarif()
 
 
-def exclusion_ids(root: Path, ref: str) -> list[str]:
-    result = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", ref, "--", ".kics-exclude/"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    exclusions: list[str] = []
-    for name in result.stdout.splitlines():
-        content = subprocess.run(
-            ["git", "show", f"{ref}:{name}"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        similarity_id = content.splitlines()[0].strip()
-        if SIMILARITY_ID.fullmatch(similarity_id):
-            exclusions.append(similarity_id)
-    return exclusions
-
-
 def kics_command(args: argparse.Namespace, root: Path) -> list[str]:
     command = [
         str(Path(args.executable).resolve()),
@@ -652,6 +759,18 @@ def kics_plan(args: argparse.Namespace) -> None:
         print("No changed deployment YAML; KICS scan will be skipped")
 
 
+def kics_exclusions_plan(args: argparse.Namespace) -> None:
+    required = trusted_exclusions_need_baseline(
+        Path(args.root).resolve(), args.ref
+    )
+    write_output("needs_baseline", str(required).lower())
+    print(
+        "Trusted-base KICS scan is "
+        + ("required" if required else "not required")
+        + " for reviewed exclusions"
+    )
+
+
 def image_scan_files(
     event: str,
     before: str,
@@ -686,7 +805,7 @@ def plan(args: argparse.Namespace) -> None:
     if not full_inventory:
         baseline_ref = args.base if args.event == "pull_request" else args.before
         if baseline_ref and set(baseline_ref) != {"0"}:
-            baseline_images = images_from_git_ref(baseline_ref, root, files)
+            baseline_images = images_from_git_ref(baseline_ref, root)
         else:
             baseline_images = []
     matrix = json.dumps(
@@ -729,13 +848,13 @@ def normalize(args: argparse.Namespace) -> None:
 
 
 def filter_kics(args: argparse.Namespace) -> None:
-    baseline = (
-        json.loads(Path(args.baseline_json).read_text(encoding="utf-8"))
-        if args.baseline_json
+    trusted_baseline = (
+        json.loads(Path(args.trusted_baseline_json).read_text(encoding="utf-8"))
+        if args.trusted_baseline_json
         else None
     )
     fingerprints = exclusion_fingerprints(
-        Path(args.root).resolve(), args.ref, baseline
+        Path(args.root).resolve(), args.ref, trusted_baseline
     )
     json_document = json.loads(Path(args.json).read_text(encoding="utf-8"))
     sarif_document = json.loads(Path(args.sarif).read_text(encoding="utf-8"))
@@ -785,6 +904,11 @@ def parser() -> argparse.ArgumentParser:
     kics_plan_parser.add_argument("--root", default=".")
     kics_plan_parser.set_defaults(func=kics_plan)
 
+    exclusions_plan_parser = commands.add_parser("kics-exclusions-plan")
+    exclusions_plan_parser.add_argument("--ref", default="origin/main")
+    exclusions_plan_parser.add_argument("--root", default=".")
+    exclusions_plan_parser.set_defaults(func=kics_exclusions_plan)
+
     plan_parser = commands.add_parser("plan")
     plan_parser.add_argument("--event", required=True)
     plan_parser.add_argument("--before", default="")
@@ -801,7 +925,7 @@ def parser() -> argparse.ArgumentParser:
     filter_kics_parser.add_argument("--sarif-output", required=True)
     filter_kics_parser.add_argument("--ref", default="origin/main")
     filter_kics_parser.add_argument("--root", default=".")
-    filter_kics_parser.add_argument("--baseline-json")
+    filter_kics_parser.add_argument("--trusted-baseline-json")
     filter_kics_parser.set_defaults(func=filter_kics)
 
     diff_parser = commands.add_parser("diff-sarif")

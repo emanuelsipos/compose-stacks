@@ -23,7 +23,7 @@ For each finding in the KICS results JSON the script:
                     fingerprint suppression PR
        none       -> open a fingerprint suppression PR
 
-Suppression strategy -- stable occurrence fingerprints:
+Suppression strategy -- stable content fingerprints:
   KICS v2.1.x inline `# kics-scan ignore-line` comments are silently
   ignored for all YAML constructs (confirmed in production logs). Inline
   suppression has been removed. Every finding is handled by writing a
@@ -69,7 +69,6 @@ LABEL_COLOR   = "e11d48"
 LABEL_DESC    = "KICS security finding awaiting suppression review"
 BRANCH_PREFIX = "security/kics-"
 FINDING_TAG = "kics-finding"
-LEGACY_SIMILARITY_TAG = "kics-sim"
 KICS_EXCLUDE_DIR = ".kics-exclude"
 DEFAULT_PR_LIMIT = 20
 
@@ -126,7 +125,7 @@ def ensure_label(token: str, repo: str) -> None:
 def prefetch_all_kics_prs(token: str, repo: str) -> dict[str, dict]:
     """
     Fetch all PRs (open + closed + merged) once at startup and return a
-    dict keyed by stable fingerprint or legacy similarity_id.
+    dict keyed by exact finding fingerprint.
 
     Uses GET /repos/{repo}/pulls (5 000 req/h) instead of
     GET /search/issues per finding (10 req/min for installations).
@@ -135,8 +134,7 @@ def prefetch_all_kics_prs(token: str, repo: str) -> dict[str, dict]:
     pr_index: dict[str, dict] = {}
     page = 1
     marker_re = re.compile(
-        rf"<!--\s*(?:{re.escape(FINDING_TAG)}|{re.escape(LEGACY_SIMILARITY_TAG)})"
-        r":([a-f0-9]+)\s*-->"
+        rf"<!--\s*{re.escape(FINDING_TAG)}:([a-f0-9]{{64}})\s*-->"
     )
     total_fetched = 0
 
@@ -154,8 +152,12 @@ def prefetch_all_kics_prs(token: str, repo: str) -> dict[str, dict]:
         for pr in batch:
             body = pr.get("body") or ""
             for finding_id in marker_re.findall(body):
-                if finding_id not in pr_index:
-                    pr_index[finding_id] = pr
+                if finding_id in pr_index:
+                    raise GitHubAPIError(
+                        "Multiple pull requests contain KICS finding marker "
+                        + finding_id
+                    )
+                pr_index[finding_id] = pr
         total_fetched += len(batch)
         print(".", end="", flush=True)
         if len(batch) < 100:
@@ -167,9 +169,7 @@ def prefetch_all_kics_prs(token: str, repo: str) -> dict[str, dict]:
 
 
 def find_pr(finding: dict, pr_index: dict[str, dict]) -> dict | None:
-    return pr_index.get(finding["fingerprint"]) or pr_index.get(
-        finding["similarity_id"]
-    )
+    return pr_index.get(finding["fingerprint"])
 
 
 def pr_state(pr: dict) -> str:
@@ -229,7 +229,7 @@ def fingerprint_match_on_disk(finding: dict) -> str:
     excl_dir = Path(KICS_EXCLUDE_DIR)
     if not excl_dir.is_dir():
         return ""
-    marker = f"finding-v1:{finding['fingerprint']}"
+    marker = f"finding-v2:{finding['fingerprint']}"
     for f in excl_dir.iterdir():
         if f.is_file() and marker in f.read_text(encoding="utf-8").splitlines():
             return f.name
@@ -242,7 +242,7 @@ def apply_exclude_file(finding: dict) -> tuple[bool, str]:
         line 1: similarity_id  -- scanner metadata, not enforcement identity
         line 2: query_id
         line 3: file_name
-        line 4: stable per-occurrence fingerprint
+        line 4: exact finding fingerprint
     """
     target = excl_path(finding)
     if target.exists():
@@ -255,7 +255,7 @@ def apply_exclude_file(finding: dict) -> tuple[bool, str]:
         finding["similarity_id"] + "\n"
         + finding["query_id"]    + "\n"
         + finding["file_name"]   + "\n"
-        + "finding-v1:" + finding["fingerprint"] + "\n"
+        + "finding-v2:" + finding["fingerprint"] + "\n"
     )
     return True, target.name
 
@@ -325,7 +325,7 @@ def make_pr_body(finding: dict, note: str = "") -> str:
     fname      = exclude_filename(finding)
 
     suppression_desc = (
-        f"stable finding fingerprint in `.kics-exclude/{fname}`"
+        f"exact finding fingerprint in `.kics-exclude/{fname}`"
     )
     if note:
         suppression_desc += f" ({note})"
@@ -364,11 +364,10 @@ def make_pr_body(finding: dict, note: str = "") -> str:
 def load_findings(kics_json_path: str) -> list[dict]:
     with open(kics_json_path) as f:
         data = json.load(f)
-    findings = []
+    raw_findings: list[tuple[dict, dict, tuple[str, ...]]] = []
     for query in data.get("queries", []):
-        occurrences: Counter[tuple[str, ...]] = Counter()
         for file_result in query.get("files", []):
-            identity = (
+            content_identity = (
                 query["query_id"],
                 file_result["file_name"].replace("\\", "/").removeprefix("./"),
                 file_result.get("issue_type", ""),
@@ -376,25 +375,37 @@ def load_findings(kics_json_path: str) -> list[dict]:
                 file_result.get("expected_value", ""),
                 file_result.get("actual_value", ""),
             )
-            occurrence = occurrences[identity]
-            occurrences[identity] += 1
-            digest_input = "\0".join(
-                ["kics-finding-v1", *identity, str(occurrence)]
+            identity = (
+                *content_identity,
+                str(file_result.get("line", 0)),
+                str(file_result.get("search_line", 0)),
             )
-            findings.append({
-                "query_id":      query["query_id"],
-                "query_name":    query["query_name"],
-                "severity":      query["severity"],
-                "description":   query.get("description", ""),
-                "file_name":     file_result["file_name"],
-                "line":          file_result["line"],
-                "similarity_id": file_result["similarity_id"],
-                "issue_type": file_result.get("issue_type", ""),
-                "search_key": file_result.get("search_key", ""),
-                "expected_value": file_result.get("expected_value", ""),
-                "actual_value": file_result.get("actual_value", ""),
-                "fingerprint": hashlib.sha256(digest_input.encode()).hexdigest(),
-            })
+            raw_findings.append((query, file_result, identity))
+
+    identity_counts = Counter(identity for _, _, identity in raw_findings)
+    if any(count > 1 for count in identity_counts.values()):
+        raise ValueError(
+            "KICS results contain duplicate finding content identities; "
+            "refusing to generate order-index fingerprints"
+        )
+
+    findings = []
+    for query, file_result, identity in raw_findings:
+        digest_input = "\0".join(["kics-finding-v2", *identity])
+        findings.append({
+            "query_id":      query["query_id"],
+            "query_name":    query["query_name"],
+            "severity":      query["severity"],
+            "description":   query.get("description", ""),
+            "file_name":     file_result["file_name"],
+            "line":          file_result["line"],
+            "similarity_id": file_result["similarity_id"],
+            "issue_type": file_result.get("issue_type", ""),
+            "search_key": file_result.get("search_key", ""),
+            "expected_value": file_result.get("expected_value", ""),
+            "actual_value": file_result.get("actual_value", ""),
+            "fingerprint": hashlib.sha256(digest_input.encode()).hexdigest(),
+        })
     return findings
 
 
@@ -447,7 +458,7 @@ def process_finding(
 
         if state == "dismissed":
             force = "*" in reopen_set or any(
-                fingerprint.startswith(p) or sim_id.startswith(p)
+                fingerprint.startswith(p)
                 for p in reopen_set
             )
             if not force:
@@ -486,7 +497,7 @@ def process_finding(
             "",
             f"File:       {file_name}:{line}",
             f"Rule:       {finding['query_id']}",
-            "Suppression: finding-v1 fingerprint",
+            "Suppression: finding-v2 fingerprint",
             f"Similarity: {sim_id}",
             f"Fingerprint: {fingerprint}",
         ])

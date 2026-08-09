@@ -2,6 +2,7 @@
 
 import importlib.util
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,10 +67,10 @@ class KicsPRManagerTests(unittest.TestCase):
         self.assertEqual(
             content,
             f"{item['similarity_id']}\n{item['query_id']}\n{item['file_name']}\n"
-            f"finding-v1:{item['fingerprint']}\n",
+            f"finding-v2:{item['fingerprint']}\n",
         )
 
-    def test_prefetch_indexes_fingerprint_and_legacy_markers(self):
+    def test_prefetch_indexes_only_exact_fingerprint_markers(self):
         fingerprint = "b" * 64
         similarity = "a" * 64
         prs = [{
@@ -83,7 +84,65 @@ class KicsPRManagerTests(unittest.TestCase):
             index = kics_pr_manager.prefetch_all_kics_prs("token", "owner/repo")
 
         self.assertIs(index[fingerprint], prs[0])
-        self.assertIs(index[similarity], prs[0])
+        self.assertNotIn(similarity, index)
+
+    def test_prefetch_rejects_duplicate_exact_markers(self):
+        fingerprint = "b" * 64
+        prs = [
+            {"body": f"<!-- kics-finding:{fingerprint} -->", "state": "open"},
+            {"body": f"<!-- kics-finding:{fingerprint} -->", "state": "closed"},
+        ]
+        with mock.patch.object(kics_pr_manager, "gh", return_value=prs):
+            with self.assertRaisesRegex(
+                kics_pr_manager.GitHubAPIError, "Multiple pull requests"
+            ):
+                kics_pr_manager.prefetch_all_kics_prs("token", "owner/repo")
+
+    def test_find_pr_does_not_use_legacy_ids(self):
+        item = finding()
+        self.assertIsNone(
+            kics_pr_manager.find_pr(
+                item, {item["similarity_id"]: {"state": "open"}}
+            )
+        )
+
+    def test_load_findings_rejects_duplicate_content_identities(self):
+        first = finding()
+        duplicate = dict(first, similarity_id="c" * 64)
+        data = {
+            "queries": [{
+                "query_id": first["query_id"],
+                "query_name": first["query_name"],
+                "severity": first["severity"],
+                "files": [first, duplicate],
+            }]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory) / "results.json"
+            results.write_text(json.dumps(data))
+
+            with self.assertRaisesRegex(ValueError, "duplicate finding content"):
+                kics_pr_manager.load_findings(str(results))
+
+    def test_load_findings_fingerprint_changes_with_location(self):
+        first = finding()
+        data = {
+            "queries": [{
+                "query_id": first["query_id"],
+                "query_name": first["query_name"],
+                "severity": first["severity"],
+                "files": [first],
+            }]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory) / "results.json"
+            results.write_text(json.dumps(data))
+            original = kics_pr_manager.load_findings(str(results))[0]
+            data["queries"][0]["files"][0]["line"] = 99
+            results.write_text(json.dumps(data))
+            moved = kics_pr_manager.load_findings(str(results))[0]
+
+        self.assertNotEqual(original["fingerprint"], moved["fingerprint"])
 
     def test_prefetch_fails_closed_on_later_page_error(self):
         page = [{"body": "", "state": "closed"}] * 100
@@ -123,7 +182,7 @@ class KicsPRManagerTests(unittest.TestCase):
     def test_open_pr_state_skips_all_git_operations(self):
         item = finding()
         existing = {
-            item["similarity_id"]: {"state": "open", "number": 42, "merged_at": None}
+            item["fingerprint"]: {"state": "open", "number": 42, "merged_at": None}
         }
         with (
             mock.patch.object(kics_pr_manager, "excl_path", return_value=Path("missing")),
