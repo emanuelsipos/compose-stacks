@@ -11,48 +11,52 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 EXCLUDE_DIR = ROOT / ".kics-exclude"
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
-
-
-def slug(value: str) -> str:
-    value = re.sub(r"[/ \\]", "-", value)
-    return re.sub(r"[^A-Za-z0-9._-]", "", value)[:60]
+QUERY_ID = re.compile(r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
+FINGERPRINT = re.compile(r"^finding-v1:([a-f0-9]{64})$")
 
 
 def compose_paths() -> list[Path]:
     return sorted(
         path.relative_to(ROOT)
-        for pattern in ("compose.yaml", "compose.yml")
+        for pattern in ("*.yaml", "*.yml")
         for path in ROOT.rglob(pattern)
         if ".git" not in path.parts
+        and ".github" not in path.parts
+        and ".kics-exclude" not in path.parts
     )
 
 
 def main() -> int:
     errors: list[str] = []
-    paths = compose_paths()
+    paths = set(compose_paths())
+    fingerprints: dict[str, str] = {}
+    count = 0
 
     for exclusion in sorted(EXCLUDE_DIR.iterdir()):
         if exclusion.name == "README.md" or not exclusion.is_file():
             continue
+        count += 1
 
         lines = exclusion.read_text(encoding="utf-8").splitlines()
-        if not lines or not SIMILARITY_ID.fullmatch(lines[0]):
-            errors.append(f"{exclusion.name}: missing or invalid similarity ID")
+        if len(lines) != 4:
+            errors.append(f"{exclusion.name}: expected exactly four metadata lines")
             continue
-
-        if len(lines) >= 3:
-            candidates = [Path(lines[2])]
-        else:
-            candidates = [
-                path for path in paths if f"_{slug(path.as_posix())}_L" in exclusion.name
-            ]
-
-        if len(candidates) != 1:
+        if not SIMILARITY_ID.fullmatch(lines[0]):
+            errors.append(f"{exclusion.name}: invalid similarity ID")
+        if not QUERY_ID.fullmatch(lines[1]):
+            errors.append(f"{exclusion.name}: invalid query ID")
+        path = Path(lines[2])
+        if path.is_absolute() or ".." in path.parts or path not in paths:
+            errors.append(f"{exclusion.name}: invalid or missing Compose path {path}")
+        match = FINGERPRINT.fullmatch(lines[3])
+        if not match:
+            errors.append(f"{exclusion.name}: invalid finding fingerprint")
+        elif previous := fingerprints.get(match.group(1)):
             errors.append(
-                f"{exclusion.name}: affected Compose path is missing or ambiguous"
+                f"{exclusion.name}: duplicate finding fingerprint also in {previous}"
             )
-        elif not (ROOT / candidates[0]).is_file():
-            errors.append(f"{exclusion.name}: {candidates[0]} does not exist")
+        else:
+            fingerprints[match.group(1)] = exclusion.name
 
     if errors:
         print("Invalid KICS exclusions:", file=sys.stderr)
@@ -60,7 +64,7 @@ def main() -> int:
             print(f"  - {error}", file=sys.stderr)
         return 1
 
-    print(f"Validated {len(list(EXCLUDE_DIR.glob('HIGH_*')))} KICS exclusions")
+    print(f"Validated {count} KICS exclusions")
     return 0
 
 
