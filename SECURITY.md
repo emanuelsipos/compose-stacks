@@ -14,7 +14,12 @@ partial scans never replace those authoritative results.
 
 ## Accepted risks
 
-KICS suppressions are limited to reviewed HIGH findings in `.kics-exclude/`. They fall into four deployment requirements.
+KICS suppressions are limited to reviewed HIGH or CRITICAL findings in
+`.kics-exclude/`. They fall into four deployment requirements.
+Approvals are bound to the finding's rule, Compose file, service/property path,
+issue type, expected value, and actual value rather than scanner line numbers.
+Unrelated edits can move an approved finding without invalidating it; any change
+to those risk semantics requires review, and duplicate identities fail closed.
 
 ### Docker socket access
 
