@@ -42,7 +42,7 @@ SARIF_SCHEMA = (
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/"
     "cs01/schemas/sarif-schema-2.1.0.json"
 )
-KICS_FINGERPRINT = re.compile(r"^finding-v([12]):([a-f0-9]{64})$")
+KICS_FINGERPRINT = re.compile(r"^finding-v([23]):([a-f0-9]{64})$")
 PINNED_IMAGE_REFERENCE = re.compile(r"^[^@\s]+@sha256:[a-f0-9]{64}$")
 KICS_QUERY_REF = re.compile(
     r"repository:\s*Checkmarx/kics\s*\n\s*ref:\s*[a-f0-9]{40}\s*#\s*v([^\s]+)"
@@ -305,24 +305,25 @@ def validate_pinned_image(image: str) -> None:
         )
 
 
-def kics_finding_fingerprint(query_id: str, finding: dict) -> str:
+def kics_finding_v2_fingerprint(query_id: str, finding: dict) -> str:
     identity = "\0".join(
         ["kics-finding-v2", *kics_finding_identity(query_id, finding)]
     )
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
-def kics_finding_v1_fingerprint(
-    query_id: str, finding: dict, occurrence: int
-) -> str:
+def kics_finding_fingerprint(query_id: str, finding: dict) -> str:
     identity = "\0".join(
-        [
-            "kics-finding-v1",
-            *kics_finding_content_identity(query_id, finding),
-            str(occurrence),
-        ]
+        ["kics-finding-v3", *kics_finding_content_identity(query_id, finding)]
     )
     return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def kics_finding_v3_supported(finding: dict) -> bool:
+    return all(
+        isinstance(finding.get(field), str) and bool(finding[field])
+        for field in ("search_key", "actual_value")
+    )
 
 
 def exclusion_records(root: Path, ref: str) -> list[dict[str, str]]:
@@ -364,43 +365,13 @@ def exclusion_records(root: Path, ref: str) -> list[dict[str, str]]:
     return records
 
 
-def exclusion_fingerprints(
-    root: Path, ref: str, trusted_baseline: dict | None = None
-) -> set[str]:
+def exclusion_fingerprints(root: Path, ref: str) -> set[str]:
     records = exclusion_records(root, ref)
-    fingerprints = {
-        record["fingerprint"] for record in records if record["version"] == "2"
+    return {
+        f"finding-v{record['version']}:{record['fingerprint']}"
+        for record in records
+        if record["version"] in {"2", "3"}
     }
-    trusted_v1 = [record for record in records if record["version"] == "1"]
-    if not trusted_v1:
-        return fingerprints
-    if trusted_baseline is None:
-        raise ValueError(
-            "Trusted-base KICS JSON is required to resolve finding-v1 records"
-        )
-
-    v1_to_v2: dict[str, list[str]] = {}
-    for query in trusted_baseline.get("queries", []):
-        query_id = str(query.get("query_id", ""))
-        occurrences: Counter[tuple[str, ...]] = Counter()
-        for finding in query.get("files", []):
-            identity = kics_finding_content_identity(query_id, finding)
-            occurrence = occurrences[identity]
-            occurrences[identity] += 1
-            v1 = kics_finding_v1_fingerprint(query_id, finding, occurrence)
-            v1_to_v2.setdefault(v1, []).append(
-                kics_finding_fingerprint(query_id, finding)
-            )
-
-    for record in trusted_v1:
-        matches = v1_to_v2.get(record["fingerprint"], [])
-        if len(matches) == 1:
-            fingerprints.add(matches[0])
-    return fingerprints
-
-
-def trusted_exclusions_need_baseline(root: Path, ref: str) -> bool:
-    return any(record["version"] == "1" for record in exclusion_records(root, ref))
 
 
 def filter_kics_json(
@@ -414,7 +385,7 @@ def filter_kics_json(
     suppressed: Counter[tuple[str, str, int, str]] = Counter()
     findings: Counter[tuple[str, str, int, str]] = Counter()
     identity_counts = Counter(
-        kics_finding_identity(query.get("query_id", ""), finding)
+        kics_finding_content_identity(query.get("query_id", ""), finding)
         for query in filtered.get("queries", [])
         for finding in query.get("files", [])
     )
@@ -422,7 +393,7 @@ def filter_kics_json(
         query_id = query.get("query_id", "")
         kept = []
         for finding in query.get("files", []):
-            identity = kics_finding_identity(query_id, finding)
+            identity = kics_finding_content_identity(query_id, finding)
             sarif_key = (
                 query_id,
                 str(finding.get("file_name", ""))
@@ -434,7 +405,17 @@ def filter_kics_json(
             findings[sarif_key] += 1
             if (
                 identity_counts[identity] == 1
-                and kics_finding_fingerprint(query_id, finding) in fingerprints
+                and (
+                    "finding-v2:"
+                    + kics_finding_v2_fingerprint(query_id, finding)
+                    in fingerprints
+                    or (
+                        kics_finding_v3_supported(finding)
+                        and "finding-v3:"
+                        + kics_finding_fingerprint(query_id, finding)
+                        in fingerprints
+                    )
+                )
             ):
                 suppressed[sarif_key] += 1
             else:
@@ -759,18 +740,6 @@ def kics_plan(args: argparse.Namespace) -> None:
         print("No changed deployment YAML; KICS scan will be skipped")
 
 
-def kics_exclusions_plan(args: argparse.Namespace) -> None:
-    required = trusted_exclusions_need_baseline(
-        Path(args.root).resolve(), args.ref
-    )
-    write_output("needs_baseline", str(required).lower())
-    print(
-        "Trusted-base KICS scan is "
-        + ("required" if required else "not required")
-        + " for reviewed exclusions"
-    )
-
-
 def image_scan_files(
     event: str,
     before: str,
@@ -848,14 +817,7 @@ def normalize(args: argparse.Namespace) -> None:
 
 
 def filter_kics(args: argparse.Namespace) -> None:
-    trusted_baseline = (
-        json.loads(Path(args.trusted_baseline_json).read_text(encoding="utf-8"))
-        if args.trusted_baseline_json
-        else None
-    )
-    fingerprints = exclusion_fingerprints(
-        Path(args.root).resolve(), args.ref, trusted_baseline
-    )
+    fingerprints = exclusion_fingerprints(Path(args.root).resolve(), args.ref)
     json_document = json.loads(Path(args.json).read_text(encoding="utf-8"))
     sarif_document = json.loads(Path(args.sarif).read_text(encoding="utf-8"))
     filtered_json, suppressed, findings = filter_kics_json(
@@ -871,6 +833,71 @@ def filter_kics(args: argparse.Namespace) -> None:
     print(
         f"Applied {len(fingerprints)} reviewed KICS fingerprint(s); "
         f"suppressed {sum(suppressed.values())} finding(s)"
+    )
+
+
+def verify_kics_exclusions(args: argparse.Namespace) -> None:
+    root = Path(args.root).resolve()
+    document = json.loads(Path(args.json).read_text(encoding="utf-8"))
+    trusted_records = exclusion_records(root, args.trusted_ref)
+    proposed_records = exclusion_records(root, args.proposed_ref)
+    trusted_versions = {record["version"] for record in trusted_records}
+    proposed_versions = {record["version"] for record in proposed_records}
+
+    if "2" not in trusted_versions:
+        if "2" in proposed_versions:
+            raise SystemExit(
+                "finding-v2 KICS exclusions cannot be introduced after "
+                "migration to finding-v3"
+            )
+        print("No KICS exclusion fingerprint version migration proposed")
+        return
+    if trusted_versions != {"2"}:
+        raise SystemExit(
+            "Trusted KICS exclusions contain a partial fingerprint migration"
+        )
+    if proposed_versions == {"2"}:
+        print("No KICS exclusion fingerprint version migration proposed")
+        return
+    if proposed_versions != {"3"}:
+        raise SystemExit(
+            "KICS exclusion migration must convert the complete record set "
+            "from finding-v2 to finding-v3"
+        )
+    trusted_metadata = {
+        (record["name"], record["query_id"], record["file_name"])
+        for record in trusted_records
+    }
+    proposed_metadata = {
+        (record["name"], record["query_id"], record["file_name"])
+        for record in proposed_records
+    }
+    if trusted_metadata != proposed_metadata:
+        raise SystemExit(
+            "KICS exclusion migration changed the reviewed record set"
+        )
+
+    trusted = exclusion_fingerprints(root, args.trusted_ref)
+    proposed = exclusion_fingerprints(root, args.proposed_ref)
+    _, trusted_suppressed, _ = filter_kics_json(document, trusted)
+    _, proposed_suppressed, _ = filter_kics_json(document, proposed)
+
+    if trusted_suppressed != proposed_suppressed:
+        raise SystemExit(
+            "Proposed KICS exclusions do not suppress the same exact findings "
+            "as the trusted exclusions"
+        )
+    if sum(trusted_suppressed.values()) != len(trusted):
+        raise SystemExit(
+            "Not every trusted KICS exclusion matched exactly one current finding"
+        )
+    if sum(proposed_suppressed.values()) != len(proposed):
+        raise SystemExit(
+            "Not every proposed KICS exclusion matched exactly one current finding"
+        )
+    print(
+        f"Verified {len(proposed)} proposed KICS exclusion(s) against "
+        f"{args.trusted_ref}"
     )
 
 
@@ -904,11 +931,6 @@ def parser() -> argparse.ArgumentParser:
     kics_plan_parser.add_argument("--root", default=".")
     kics_plan_parser.set_defaults(func=kics_plan)
 
-    exclusions_plan_parser = commands.add_parser("kics-exclusions-plan")
-    exclusions_plan_parser.add_argument("--ref", default="origin/main")
-    exclusions_plan_parser.add_argument("--root", default=".")
-    exclusions_plan_parser.set_defaults(func=kics_exclusions_plan)
-
     plan_parser = commands.add_parser("plan")
     plan_parser.add_argument("--event", required=True)
     plan_parser.add_argument("--before", default="")
@@ -925,8 +947,14 @@ def parser() -> argparse.ArgumentParser:
     filter_kics_parser.add_argument("--sarif-output", required=True)
     filter_kics_parser.add_argument("--ref", default="origin/main")
     filter_kics_parser.add_argument("--root", default=".")
-    filter_kics_parser.add_argument("--trusted-baseline-json")
     filter_kics_parser.set_defaults(func=filter_kics)
+
+    verify_exclusions_parser = commands.add_parser("verify-kics-exclusions")
+    verify_exclusions_parser.add_argument("--json", required=True)
+    verify_exclusions_parser.add_argument("--trusted-ref", default="origin/main")
+    verify_exclusions_parser.add_argument("--proposed-ref", default="HEAD")
+    verify_exclusions_parser.add_argument("--root", default=".")
+    verify_exclusions_parser.set_defaults(func=verify_kics_exclusions)
 
     diff_parser = commands.add_parser("diff-sarif")
     diff_parser.add_argument("--current", required=True)

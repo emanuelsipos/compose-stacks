@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EXCLUDE_DIR = ROOT / ".kics-exclude"
 SIMILARITY_ID = re.compile(r"^[a-f0-9]{64}$")
 QUERY_ID = re.compile(r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
-FINGERPRINT = re.compile(r"^finding-v2:([a-f0-9]{64})$")
+FINGERPRINT = re.compile(r"^finding-v([23]):([a-f0-9]{64})$")
 
 
 def compose_paths() -> list[Path]:
@@ -51,12 +51,12 @@ def main() -> int:
         match = FINGERPRINT.fullmatch(lines[3])
         if not match:
             errors.append(f"{exclusion.name}: invalid finding fingerprint")
-        elif previous := fingerprints.get(match.group(1)):
+        elif previous := fingerprints.get(match.group(0)):
             errors.append(
                 f"{exclusion.name}: duplicate finding fingerprint also in {previous}"
             )
         else:
-            fingerprints[match.group(1)] = exclusion.name
+            fingerprints[match.group(0)] = exclusion.name
 
     if errors:
         print("Invalid KICS exclusions:", file=sys.stderr)

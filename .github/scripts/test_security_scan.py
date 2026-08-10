@@ -732,7 +732,7 @@ class SecurityScanTests(unittest.TestCase):
             ["--exclude-severities", "medium,low", "--exclude-results", "one,two"],
         )
 
-    def test_kics_fingerprint_is_occurrence_specific(self):
+    def test_kics_v3_fingerprint_is_semantic(self):
         finding = {
             "file_name": "stack/compose.yaml",
             "line": 10,
@@ -745,7 +745,7 @@ class SecurityScanTests(unittest.TestCase):
         moved = dict(finding, line=20, similarity_id="b" * 64)
         distinct = dict(finding, search_key="services.worker.privileged")
 
-        self.assertNotEqual(
+        self.assertEqual(
             security_scan.kics_finding_fingerprint("query", finding),
             security_scan.kics_finding_fingerprint("query", moved),
         )
@@ -754,7 +754,10 @@ class SecurityScanTests(unittest.TestCase):
             security_scan.kics_finding_fingerprint("query", distinct),
         )
         expected = "\0".join(
-            ["kics-finding-v2", *security_scan.kics_finding_identity("query", finding)]
+            [
+                "kics-finding-v3",
+                *security_scan.kics_finding_content_identity("query", finding),
+            ]
         )
         self.assertEqual(
             security_scan.kics_finding_fingerprint("query", finding),
@@ -772,8 +775,15 @@ class SecurityScanTests(unittest.TestCase):
             "actual_value": "sensitive",
         }
         query_id = "query-id"
-        duplicate = dict(finding, similarity_id="b" * 64)
-        reviewed = {security_scan.kics_finding_fingerprint(query_id, finding)}
+        duplicate = dict(
+            finding,
+            similarity_id="b" * 64,
+            line=20,
+            search_line=20,
+        )
+        reviewed = {
+            "finding-v3:" + security_scan.kics_finding_fingerprint(query_id, finding)
+        }
 
         for files in ([finding, duplicate], [duplicate, finding]):
             with self.subTest(files=files):
@@ -814,7 +824,7 @@ class SecurityScanTests(unittest.TestCase):
 
         filtered_json, suppressed, findings = security_scan.filter_kics_json(
             {"queries": [{"query_id": query_id, "files": [finding]}]},
-            {security_scan.kics_finding_fingerprint(query_id, finding)},
+            {"finding-v3:" + security_scan.kics_finding_fingerprint(query_id, finding)},
         )
         filtered_sarif = security_scan.filter_kics_sarif(
             {"runs": [{"results": [{
@@ -833,7 +843,7 @@ class SecurityScanTests(unittest.TestCase):
         self.assertEqual(sum(suppressed.values()), 1)
         self.assertEqual(filtered_sarif["runs"][0]["results"], [])
 
-    def test_kics_filter_does_not_reuse_approval_at_a_new_location(self):
+    def test_kics_v3_filter_reuses_approval_after_line_only_move(self):
         reviewed = {
             "file_name": "stack/compose.yaml",
             "line": 10,
@@ -848,89 +858,107 @@ class SecurityScanTests(unittest.TestCase):
 
         filtered, suppressed, _ = security_scan.filter_kics_json(
             {"queries": [{"query_id": query_id, "files": [replacement]}]},
-            {security_scan.kics_finding_fingerprint(query_id, reviewed)},
+            {
+                "finding-v3:"
+                + security_scan.kics_finding_fingerprint(query_id, reviewed)
+            },
         )
 
-        self.assertEqual(filtered["queries"][0]["files"], [replacement])
-        self.assertEqual(sum(suppressed.values()), 0)
+        self.assertEqual(filtered["queries"][0]["files"], [])
+        self.assertEqual(sum(suppressed.values()), 1)
 
-    def test_v1_exclusion_resolves_only_through_exact_trusted_base_location(self):
-        finding = {
+    def test_kics_v3_filter_does_not_reuse_semantically_changed_approval(self):
+        reviewed = {
             "file_name": "stack/compose.yaml",
             "line": 10,
-            "search_line": 11,
+            "search_line": 10,
             "issue_type": "IncorrectValue",
             "search_key": "services.app.privileged",
             "expected_value": "false",
             "actual_value": "true",
         }
         query_id = "query-id"
-        v1 = security_scan.kics_finding_v1_fingerprint(query_id, finding, 0)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.invalid"],
-                cwd=root,
-                check=True,
-            )
-            exclusions = root / ".kics-exclude"
-            exclusions.mkdir()
-            (exclusions / "legacy").write_text(
-                "a" * 64
-                + f"\n{query_id}\nstack/compose.yaml\nfinding-v1:{v1}\n"
-            )
-            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
-            baseline = {"queries": [{"query_id": query_id, "files": [finding]}]}
-
-            fingerprints = security_scan.exclusion_fingerprints(
-                root, "HEAD", baseline
-            )
-
-        exact_v2 = security_scan.kics_finding_fingerprint(query_id, finding)
-        self.assertEqual(fingerprints, {exact_v2})
-        moved = dict(finding, line=20, search_line=21)
-        filtered, suppressed, _ = security_scan.filter_kics_json(
-            {"queries": [{"query_id": query_id, "files": [moved]}]},
-            fingerprints,
+        fingerprint = (
+            "finding-v3:"
+            + security_scan.kics_finding_fingerprint(query_id, reviewed)
         )
-        self.assertEqual(filtered["queries"][0]["files"], [moved])
+        changes = {
+            "file_name": "other/compose.yaml",
+            "issue_type": "MissingAttribute",
+            "search_key": "services.worker.privileged",
+            "expected_value": "missing",
+            "actual_value": "false",
+        }
+
+        for field, value in changes.items():
+            with self.subTest(field=field):
+                changed = dict(reviewed, **{field: value})
+                filtered, suppressed, _ = security_scan.filter_kics_json(
+                    {"queries": [{"query_id": query_id, "files": [changed]}]},
+                    {fingerprint},
+                )
+                self.assertEqual(filtered["queries"][0]["files"], [changed])
+                self.assertEqual(sum(suppressed.values()), 0)
+
+        filtered, suppressed, _ = security_scan.filter_kics_json(
+            {"queries": [{"query_id": "other-query", "files": [reviewed]}]},
+            {fingerprint},
+        )
+        self.assertEqual(filtered["queries"][0]["files"], [reviewed])
         self.assertEqual(sum(suppressed.values()), 0)
 
-    def test_v1_exclusion_requires_trusted_baseline(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.invalid"],
-                cwd=root,
-                check=True,
-            )
-            exclusions = root / ".kics-exclude"
-            exclusions.mkdir()
-            (exclusions / "legacy").write_text(
-                "a" * 64
-                + "\nquery-id\nstack/compose.yaml\nfinding-v1:"
-                + "b" * 64
-                + "\n"
-            )
-            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
-
-            with self.assertRaisesRegex(ValueError, "Trusted-base KICS JSON"):
-                security_scan.exclusion_fingerprints(root, "HEAD")
-
-    def test_v1_exclusion_fails_closed_on_ambiguous_baseline_fingerprint(self):
+    def test_kics_v3_requires_search_key_and_actual_value(self):
         finding = {
             "file_name": "stack/compose.yaml",
             "line": 10,
             "issue_type": "IncorrectValue",
+            "search_key": "",
+            "expected_value": "false",
+            "actual_value": "true",
         }
         query_id = "query-id"
-        v1 = security_scan.kics_finding_v1_fingerprint(query_id, finding, 0)
+
+        for field in ("search_key", "actual_value"):
+            for value in ("", None, 1):
+                with self.subTest(field=field, value=value):
+                    unsupported = dict(
+                        finding, search_key="key", actual_value="value"
+                    )
+                    unsupported[field] = value
+                    fingerprint = (
+                        "finding-v3:"
+                        + security_scan.kics_finding_fingerprint(
+                            query_id, unsupported
+                        )
+                    )
+                    filtered, suppressed, _ = security_scan.filter_kics_json(
+                        {
+                            "queries": [
+                                {"query_id": query_id, "files": [unsupported]}
+                            ]
+                        },
+                        {fingerprint},
+                    )
+                    self.assertEqual(
+                        filtered["queries"][0]["files"], [unsupported]
+                    )
+                    self.assertEqual(sum(suppressed.values()), 0)
+
+    def test_kics_exclusion_migration_preserves_exact_findings(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "search_line": 10,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        query_id = "query-id"
+        v2 = security_scan.kics_finding_v2_fingerprint(query_id, finding)
+        v3 = security_scan.kics_finding_fingerprint(query_id, finding)
+        document = {"queries": [{"query_id": query_id, "files": [finding]}]}
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -942,26 +970,47 @@ class SecurityScanTests(unittest.TestCase):
             )
             exclusions = root / ".kics-exclude"
             exclusions.mkdir()
-            (exclusions / "legacy").write_text(
-                "a" * 64
-                + f"\n{query_id}\nstack/compose.yaml\nfinding-v1:{v1}\n"
-            )
+            record = exclusions / "accepted"
+            metadata = "a" * 64 + f"\n{query_id}\nstack/compose.yaml\n"
+            record.write_text(metadata + f"finding-v2:{v2}\n")
             subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
-            baseline = {
-                "queries": [
-                    {"query_id": query_id, "files": [finding]},
-                    {"query_id": query_id, "files": [finding]},
+            subprocess.run(["git", "commit", "-qm", "v2"], cwd=root, check=True)
+            record.write_text(metadata + f"finding-v3:{v3}\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v3"], cwd=root, check=True)
+            results = root / "results.json"
+            results.write_text(json.dumps(document))
+            arguments = security_scan.parser().parse_args(
+                [
+                    "verify-kics-exclusions",
+                    "--json",
+                    str(results),
+                    "--trusted-ref",
+                    "HEAD~1",
+                    "--proposed-ref",
+                    "HEAD",
+                    "--root",
+                    str(root),
                 ]
-            }
-
-            fingerprints = security_scan.exclusion_fingerprints(
-                root, "HEAD", baseline
             )
 
-        self.assertEqual(fingerprints, set())
+            security_scan.verify_kics_exclusions(arguments)
 
-    def test_three_line_similarity_record_is_not_migrated(self):
+    def test_kics_exclusion_migration_rejects_changed_approval(self):
+        finding = {
+            "file_name": "stack/compose.yaml",
+            "line": 10,
+            "issue_type": "IncorrectValue",
+            "search_key": "services.app.privileged",
+            "expected_value": "false",
+            "actual_value": "true",
+        }
+        query_id = "query-id"
+        v2 = security_scan.kics_finding_v2_fingerprint(query_id, finding)
+        changed = dict(finding, actual_value="changed")
+        v3 = security_scan.kics_finding_fingerprint(query_id, changed)
+        document = {"queries": [{"query_id": query_id, "files": [finding]}]}
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -973,15 +1022,113 @@ class SecurityScanTests(unittest.TestCase):
             )
             exclusions = root / ".kics-exclude"
             exclusions.mkdir()
-            (exclusions / "legacy").write_text(
-                "a" * 64 + "\nquery-id\nstack/compose.yaml\n"
+            record = exclusions / "accepted"
+            metadata = "a" * 64 + f"\n{query_id}\nstack/compose.yaml\n"
+            record.write_text(metadata + f"finding-v2:{v2}\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v2"], cwd=root, check=True)
+            record.write_text(metadata + f"finding-v3:{v3}\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v3"], cwd=root, check=True)
+            results = root / "results.json"
+            results.write_text(json.dumps(document))
+            arguments = security_scan.parser().parse_args(
+                [
+                    "verify-kics-exclusions",
+                    "--json",
+                    str(results),
+                    "--trusted-ref",
+                    "HEAD~1",
+                    "--proposed-ref",
+                    "HEAD",
+                    "--root",
+                    str(root),
+                ]
+            )
+
+            with self.assertRaisesRegex(SystemExit, "same exact findings"):
+                security_scan.verify_kics_exclusions(arguments)
+
+    def test_kics_exclusion_verifier_ignores_future_v3_record_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            record = exclusions / "accepted"
+            record.write_text(
+                "a" * 64
+                + "\nquery-id\nstack/compose.yaml\nfinding-v3:"
+                + "b" * 64
+                + "\n"
             )
             subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v3"], cwd=root, check=True)
+            record.unlink()
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "remove"], cwd=root, check=True)
+            results = root / "results.json"
+            results.write_text('{"queries": []}')
+            arguments = security_scan.parser().parse_args(
+                [
+                    "verify-kics-exclusions",
+                    "--json",
+                    str(results),
+                    "--trusted-ref",
+                    "HEAD~1",
+                    "--proposed-ref",
+                    "HEAD",
+                    "--root",
+                    str(root),
+                ]
+            )
 
-            fingerprints = security_scan.exclusion_fingerprints(root, "HEAD")
+            security_scan.verify_kics_exclusions(arguments)
 
-        self.assertEqual(fingerprints, set())
+    def test_kics_exclusion_verifier_rejects_future_v2_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            exclusions = root / ".kics-exclude"
+            exclusions.mkdir()
+            record = exclusions / "accepted"
+            metadata = "a" * 64 + "\nquery-id\nstack/compose.yaml\n"
+            record.write_text(metadata + "finding-v3:" + "b" * 64 + "\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v3"], cwd=root, check=True)
+            record.write_text(metadata + "finding-v2:" + "c" * 64 + "\n")
+            subprocess.run(["git", "add", ".kics-exclude"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "v2"], cwd=root, check=True)
+            results = root / "results.json"
+            results.write_text('{"queries": []}')
+            arguments = security_scan.parser().parse_args(
+                [
+                    "verify-kics-exclusions",
+                    "--json",
+                    str(results),
+                    "--trusted-ref",
+                    "HEAD~1",
+                    "--proposed-ref",
+                    "HEAD",
+                    "--root",
+                    str(root),
+                ]
+            )
+
+            with self.assertRaisesRegex(SystemExit, "cannot be introduced"):
+                security_scan.verify_kics_exclusions(arguments)
 
     def test_sarif_difference_keeps_only_new_vulnerability_identities(self):
         def result(identity):

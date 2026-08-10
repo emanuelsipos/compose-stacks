@@ -31,6 +31,8 @@ def finding(similarity_id: str = "a" * 64) -> dict:
         "expected_value": "required",
         "actual_value": "missing",
         "fingerprint": "b" * 64,
+        "ambiguous": False,
+        "v3_supported": True,
     }
 
 
@@ -67,7 +69,7 @@ class KicsPRManagerTests(unittest.TestCase):
         self.assertEqual(
             content,
             f"{item['similarity_id']}\n{item['query_id']}\n{item['file_name']}\n"
-            f"finding-v2:{item['fingerprint']}\n",
+            f"finding-v3:{item['fingerprint']}\n",
         )
 
     def test_prefetch_indexes_only_exact_fingerprint_markers(self):
@@ -75,7 +77,7 @@ class KicsPRManagerTests(unittest.TestCase):
         similarity = "a" * 64
         prs = [{
             "body": (
-                f"<!-- kics-finding:{fingerprint} -->\n"
+                f"<!-- kics-finding-v3:{fingerprint} -->\n"
                 f"<!-- kics-sim:{similarity} -->"
             ),
             "state": "open",
@@ -86,15 +88,26 @@ class KicsPRManagerTests(unittest.TestCase):
         self.assertIs(index[fingerprint], prs[0])
         self.assertNotIn(similarity, index)
 
-    def test_prefetch_rejects_duplicate_exact_markers(self):
+    def test_prefetch_prefers_open_pr_over_closed_history(self):
         fingerprint = "b" * 64
         prs = [
-            {"body": f"<!-- kics-finding:{fingerprint} -->", "state": "open"},
-            {"body": f"<!-- kics-finding:{fingerprint} -->", "state": "closed"},
+            {"body": f"<!-- kics-finding-v3:{fingerprint} -->", "state": "closed"},
+            {"body": f"<!-- kics-finding-v3:{fingerprint} -->", "state": "open"},
+        ]
+        with mock.patch.object(kics_pr_manager, "gh", return_value=prs):
+            index = kics_pr_manager.prefetch_all_kics_prs("token", "owner/repo")
+
+        self.assertIs(index[fingerprint], prs[1])
+
+    def test_prefetch_rejects_multiple_open_exact_markers(self):
+        fingerprint = "b" * 64
+        prs = [
+            {"body": f"<!-- kics-finding-v3:{fingerprint} -->", "state": "open"},
+            {"body": f"<!-- kics-finding-v3:{fingerprint} -->", "state": "open"},
         ]
         with mock.patch.object(kics_pr_manager, "gh", return_value=prs):
             with self.assertRaisesRegex(
-                kics_pr_manager.GitHubAPIError, "Multiple pull requests"
+                kics_pr_manager.GitHubAPIError, "Multiple open pull requests"
             ):
                 kics_pr_manager.prefetch_all_kics_prs("token", "owner/repo")
 
@@ -106,9 +119,9 @@ class KicsPRManagerTests(unittest.TestCase):
             )
         )
 
-    def test_load_findings_rejects_duplicate_content_identities(self):
+    def test_load_findings_marks_duplicate_semantic_identities_ambiguous(self):
         first = finding()
-        duplicate = dict(first, similarity_id="c" * 64)
+        duplicate = dict(first, similarity_id="c" * 64, line=99)
         data = {
             "queries": [{
                 "query_id": first["query_id"],
@@ -121,10 +134,12 @@ class KicsPRManagerTests(unittest.TestCase):
             results = Path(directory) / "results.json"
             results.write_text(json.dumps(data))
 
-            with self.assertRaisesRegex(ValueError, "duplicate finding content"):
-                kics_pr_manager.load_findings(str(results))
+            loaded = kics_pr_manager.load_findings(str(results))
 
-    def test_load_findings_fingerprint_changes_with_location(self):
+        self.assertEqual(len(loaded), 2)
+        self.assertTrue(all(item["ambiguous"] for item in loaded))
+
+    def test_load_findings_fingerprint_ignores_location(self):
         first = finding()
         data = {
             "queries": [{
@@ -142,7 +157,71 @@ class KicsPRManagerTests(unittest.TestCase):
             results.write_text(json.dumps(data))
             moved = kics_pr_manager.load_findings(str(results))[0]
 
-        self.assertNotEqual(original["fingerprint"], moved["fingerprint"])
+        self.assertEqual(original["fingerprint"], moved["fingerprint"])
+
+    def test_load_findings_fingerprint_changes_with_semantics(self):
+        first = finding()
+        data = {
+            "queries": [{
+                "query_id": first["query_id"],
+                "query_name": first["query_name"],
+                "severity": first["severity"],
+                "files": [first],
+            }]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            results = Path(directory) / "results.json"
+            results.write_text(json.dumps(data))
+            original = kics_pr_manager.load_findings(str(results))[0]
+            data["queries"][0]["files"][0]["actual_value"] = "changed"
+            results.write_text(json.dumps(data))
+            changed = kics_pr_manager.load_findings(str(results))[0]
+
+        self.assertNotEqual(original["fingerprint"], changed["fingerprint"])
+
+    def test_ambiguous_finding_skips_git_operations(self):
+        item = dict(finding(), ambiguous=True)
+        with mock.patch.object(kics_pr_manager, "create_branch_from_origin") as create:
+            result = kics_pr_manager.process_finding(
+                item, {}, "token", "owner/repo", "main", False, "main", set(), [1]
+            )
+
+        self.assertEqual(result, "ambiguous")
+        create.assert_not_called()
+
+    def test_unsupported_v3_finding_skips_git_operations(self):
+        item = dict(finding(), v3_supported=False)
+        with mock.patch.object(kics_pr_manager, "create_branch_from_origin") as create:
+            result = kics_pr_manager.process_finding(
+                item, {}, "token", "owner/repo", "main", False, "main", set(), [1]
+            )
+
+        self.assertEqual(result, "unsupported")
+        create.assert_not_called()
+
+    def test_load_findings_rejects_non_string_semantic_fields(self):
+        for field, value in (
+            ("search_key", None),
+            ("search_key", 1),
+            ("actual_value", None),
+            ("actual_value", 1),
+        ):
+            with self.subTest(field=field, value=value):
+                item = dict(finding(), **{field: value})
+                data = {
+                    "queries": [{
+                        "query_id": item["query_id"],
+                        "query_name": item["query_name"],
+                        "severity": item["severity"],
+                        "files": [item],
+                    }]
+                }
+                with tempfile.TemporaryDirectory() as directory:
+                    results = Path(directory) / "results.json"
+                    results.write_text(json.dumps(data))
+                    loaded = kics_pr_manager.load_findings(str(results))
+
+                self.assertFalse(loaded[0]["v3_supported"])
 
     def test_prefetch_fails_closed_on_later_page_error(self):
         page = [{"body": "", "state": "closed"}] * 100

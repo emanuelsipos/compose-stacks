@@ -74,10 +74,6 @@ jobs:
           +refs/heads/main:refs/remotes/origin/main
           --depth=1 --no-tags --filter=blob:none
 
-      - name: Plan trusted suppression migration
-        id: kics-exclusions
-        run: python3 .github/scripts/security_scan.py kics-exclusions-plan
-
       # Resolve the KICS scan path from git rather than interpolating
       # pull-request-controlled filenames into shell source. PRs scan every
       # changed deployment YAML file, including Compose fragments. Other
@@ -169,43 +165,20 @@ jobs:
           set -e
           echo "exit_code=$KICS_EXIT" >> "$GITHUB_OUTPUT"
 
-      # finding-v1 records are converted only from their exact occurrence in
-      # the trusted base. The location-bound v2 result cannot suppress a moved
-      # or replaced finding in the pull request.
-      - name: Scan trusted base for suppression migration
-        if: |
-          steps.kics-exclusions.outputs.needs_baseline == 'true' &&
-          hashFiles('kics-results/results.json') != ''
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          TRUSTED_REF="${BASE_SHA:-origin/main}"
-          git worktree add --detach "$RUNNER_TEMP/kics-base" "$TRUSTED_REF"
-          python3 .github/scripts/security_scan.py kics \
-            --root "$RUNNER_TEMP/kics-base" \
-            --path . \
-            --formats json \
-            --output "$GITHUB_WORKSPACE/kics-base-results" \
-            --queries "$GITHUB_WORKSPACE/.cache/kics-source/assets/queries" \
-            --libraries "$GITHUB_WORKSPACE/.cache/kics-source/assets/libraries" \
-            --executable "$RUNNER_TEMP/kics"
+      - name: Verify proposed KICS suppression changes
+        if: github.event_name == 'pull_request' && hashFiles('kics-results/results.json') != ''
+        run: >-
+          python3 .github/scripts/security_scan.py verify-kics-exclusions
+          --json kics-results/results.json
 
       - name: Apply reviewed KICS finding suppressions
         if: always() && hashFiles('kics-results/results.sarif') != ''
-        env:
-          TRUSTED_BASELINE_JSON: ${{ steps.kics-exclusions.outputs.needs_baseline == 'true' && 'kics-base-results/results.json' || '' }}
-        run: |
-          args=(
-            filter-kics
-            --json kics-results/results.json
-            --sarif kics-results/results.sarif
-            --json-output kics-results/results.filtered.json
-            --sarif-output kics-results/results.filtered.sarif
-          )
-          if [ -n "$TRUSTED_BASELINE_JSON" ]; then
-            args+=(--trusted-baseline-json "$TRUSTED_BASELINE_JSON")
-          fi
-          python3 .github/scripts/security_scan.py "${args[@]}"
+        run: >-
+          python3 .github/scripts/security_scan.py filter-kics
+          --json kics-results/results.json
+          --sarif kics-results/results.sarif
+          --json-output kics-results/results.filtered.json
+          --sarif-output kics-results/results.filtered.sarif
 
       - name: Upload KICS results to GitHub code scanning
         if: always() && hashFiles('kics-results/results.filtered.sarif') != ''
