@@ -26,10 +26,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: ${LIBRECHAT_API_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-2g}
 
   db-backup:
     image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
@@ -66,10 +69,13 @@ services:
     networks:
       database:
     user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: ${LIBRECHAT_MEILISEARCH_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LIBRECHAT_MEILISEARCH_MEM_LIMIT:-1g}
 
   mongodb:
     image: mongo:8@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
@@ -80,10 +86,13 @@ services:
       database:
     command: mongod --noauth
     user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: ${LIBRECHAT_MONGODB_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LIBRECHAT_MONGODB_MEM_LIMIT:-1g}
 
   rag-api:
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest@sha256:d6db3e38fb1afabcad6972d23d2cdc093e8a5b74797881e29e7599df93704985
@@ -97,10 +106,13 @@ services:
     networks:
       default:
       database:
+    deploy:
+      resources:
+        limits:
+          memory: ${LIBRECHAT_RAG_API_MEM_LIMIT:-3g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LIBRECHAT_RAG_API_MEM_LIMIT:-3g}
 
   vectordb:
     image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
@@ -113,10 +125,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?database password required}
     networks:
       database:
+    deploy:
+      resources:
+        limits:
+          memory: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-1g}
 
 networks:
   database:

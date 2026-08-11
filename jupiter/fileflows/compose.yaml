@@ -38,12 +38,15 @@ services:
     networks:
       default:
       socket_proxy:
+    deploy:
+      resources:
+        limits:
+          memory: ${FILEFLOWS_MEM_LIMIT:-4g}
     devices:
       - /dev/dri:/dev/dri/
     extends:
       file: ../../_common/base.yaml
       service: x-runtime-defaults
-    mem_limit: ${FILEFLOWS_MEM_LIMIT:-4g}
     security_opt:
       - no-new-privileges:false
 

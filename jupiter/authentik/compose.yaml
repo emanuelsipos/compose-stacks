@@ -46,10 +46,13 @@ services:
       POSTGRES_USER: ${PG_USER:-authentik}
       POSTGRES_DB: ${PG_DB:-authentik}
     env_file: .env
+    deploy:
+      resources:
+        limits:
+          memory: ${AUTHENTIK_POSTGRES_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-postgres
-    mem_limit: ${AUTHENTIK_POSTGRES_MEM_LIMIT:-1g}
 
   server:
     container_name: authentik_server
@@ -61,7 +64,10 @@ services:
       - '${COMPOSE_PORT_HTTPS:-9443}:9443'
     command: server
     <<: *authentik-base
-    mem_limit: ${AUTHENTIK_SERVER_MEM_LIMIT:-1g}
+    deploy:
+      resources:
+        limits:
+          memory: ${AUTHENTIK_SERVER_MEM_LIMIT:-1g}
 
   worker:
     container_name: authentik_worker
@@ -72,4 +78,7 @@ services:
       - /opt/docker/authentik/custom-templates/:/templates/
     command: worker
     <<: *authentik-base
-    mem_limit: ${AUTHENTIK_WORKER_MEM_LIMIT:-1g}
+    deploy:
+      resources:
+        limits:
+          memory: ${AUTHENTIK_WORKER_MEM_LIMIT:-1g}

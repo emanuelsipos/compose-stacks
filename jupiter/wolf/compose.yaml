@@ -16,6 +16,10 @@ services:
       - HOST_APPS_STATE_FOLDER=/opt/docker/wolf
     env_file: .env
     network_mode: host
+    deploy:
+      resources:
+        limits:
+          memory: ${WOLF_MEM_LIMIT:-4g}
     device_cgroup_rules:
       - "c 13:* rmw"
     devices:
@@ -25,4 +29,3 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${WOLF_MEM_LIMIT:-4g}

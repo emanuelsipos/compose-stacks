@@ -9,7 +9,10 @@ services:
     env_file: .env
     ports:
       - '8010:8010'
+    deploy:
+      resources:
+        limits:
+          memory: ${LANGUAGETOOL_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${LANGUAGETOOL_MEM_LIMIT:-2g}

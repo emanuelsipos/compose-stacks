@@ -9,10 +9,13 @@ services:
       - --remote-debugging-address=0.0.0.0
       - --remote-debugging-port=9222
       - --hide-scrollbars
+    deploy:
+      resources:
+        limits:
+          memory: ${KARAKEEP_CHROME_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${KARAKEEP_CHROME_MEM_LIMIT:-1g}
 
   meilisearch:
     image: getmeili/meilisearch:v1.53.0@sha256:a59e984fd90b9dee0c872cdb9183d330d71c038d7a3b35def5ca3ae7fb186fb2
@@ -23,10 +26,13 @@ services:
       MEILI_NO_ANALYTICS: "true"
       MEILI_UPGRADE_DB: "true"
     user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: ${KARAKEEP_MEILISEARCH_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${KARAKEEP_MEILISEARCH_MEM_LIMIT:-1g}
 
   web:
     image: ghcr.io/karakeep-app/karakeep:0.33.1@sha256:5467873df817ab3aa837f2b06bd7f2b0974132ba1ae5bce0b7e2fd134abc269b
@@ -40,7 +46,10 @@ services:
     env_file: .env
     ports:
       - '3000:3000'
+    deploy:
+      resources:
+        limits:
+          memory: ${KARAKEEP_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${KARAKEEP_MEM_LIMIT:-1g}

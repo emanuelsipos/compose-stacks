@@ -9,9 +9,12 @@ services:
     env_file: .env
     ports:
       - '8080:8080'
+    deploy:
+      resources:
+        limits:
+          memory: ${BIRDNET_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${BIRDNET_MEM_LIMIT:-2g}
     tmpfs:
       - /config/hls/:exec,size=50M,uid=${BIRDNET_UID:-1000},gid=${BIRDNET_GID:-1000},mode=0755 # Mount HLS stream segment files directory as tmpfs (RAM disk)

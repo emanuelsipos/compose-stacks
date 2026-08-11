@@ -15,10 +15,13 @@ services:
       - '27001:27001/udp'
       - '29810:29810/udp'
       - '29811-29817:29811-29817'
+    deploy:
+      resources:
+        limits:
+          memory: ${OMADA_CONTROLLER_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${OMADA_CONTROLLER_MEM_LIMIT:-2g}
     stop_grace_period: 60s
     ulimits:
       nofile:

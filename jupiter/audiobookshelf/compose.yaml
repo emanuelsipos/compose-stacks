@@ -10,7 +10,10 @@ services:
     ports:
       - '13378:80'
     user: 1000:1000
+    deploy:
+      resources:
+        limits:
+          memory: ${AUDIOBOOKSHELF_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${AUDIOBOOKSHELF_MEM_LIMIT:-1g}

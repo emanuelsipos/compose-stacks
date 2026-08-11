@@ -8,10 +8,13 @@ services:
     env_file: .env
     networks:
       - pangolin
+    deploy:
+      resources:
+        limits:
+          memory: ${VAULTWARDEN_MEM_LIMIT:-512m}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${VAULTWARDEN_MEM_LIMIT:-512m}
 
 networks:
   pangolin:

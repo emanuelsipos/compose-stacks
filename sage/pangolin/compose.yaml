@@ -120,10 +120,13 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    deploy:
+      resources:
+        limits:
+          memory: ${GERBIL_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${GERBIL_MEM_LIMIT:-1g}
 
   pangolin:
     image: fosrl/pangolin:1.21.1@sha256:dd3ccdce1ae340b73a8b7dffcdd34dc1f73e81c7b2cce14b224d841822e4541d
@@ -139,10 +142,13 @@ services:
       retries: 15
       test: [ "CMD", "curl", "-f", "http://localhost:3001/api/v1/" ]
       timeout: 3s
+    deploy:
+      resources:
+        limits:
+          memory: ${PANGOLIN_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${PANGOLIN_MEM_LIMIT:-1g}
 
   traefik:
     image: traefik:v3.7.10@sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac
@@ -161,10 +167,13 @@ services:
     network_mode: service:gerbil
     command:
       - --configFile=/etc/traefik/traefik_config.yml
+    deploy:
+      resources:
+        limits:
+          memory: ${TRAEFIK_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${TRAEFIK_MEM_LIMIT:-1g}
 
 networks:
   default:

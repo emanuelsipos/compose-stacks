@@ -11,10 +11,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?database password required}
     networks:
       - database_only
+    deploy:
+      resources:
+        limits:
+          memory: ${FORGEJO_DATABASE_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-postgres
-    mem_limit: ${FORGEJO_DATABASE_MEM_LIMIT:-1g}
 
   service.docker-in-docker:
     image: data.forgejo.org/oci/docker:29-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c
@@ -33,11 +36,14 @@ services:
       interval: 30s
       retries: 3
       timeout: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${FORGEJO_DIND_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
     hostname: docker # Must set hostname as TLS certificates are only valid for docker or localhost
-    mem_limit: ${FORGEJO_DIND_MEM_LIMIT:-2g}
     # Required for Docker-in-Docker (DinD): Forgejo Actions runner connects via
     # TLS-secured TCP socket (DOCKER_HOST=tcp://docker:2376, DOCKER_TLS_VERIFY=1).
     privileged: true
@@ -68,10 +74,13 @@ services:
       - service_only
       - database_only
     user: 65531:65531
+    deploy:
+      resources:
+        limits:
+          memory: ${FORGEJO_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${FORGEJO_MEM_LIMIT:-1g}
 
   service.runner-daemon:
     image: data.forgejo.org/forgejo/runner:13.0.0@sha256:7fb853bfe73c229be6349398359c0a7bd01fadfd17c106607b2221150b799ed2
@@ -92,10 +101,13 @@ services:
     command: >-
       bash -c ' while : ; do test -w .runner && forgejo-runner --config config.yml daemon ; sleep 1 ; done '
     user: 65530:65530
+    deploy:
+      resources:
+        limits:
+          memory: ${FORGEJO_RUNNER_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${FORGEJO_RUNNER_MEM_LIMIT:-1g}
 
 networks:
   public_access:
