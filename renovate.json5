@@ -153,6 +153,7 @@
         "revenz/fileflows",
         "ghcr.io/home-assistant/home-assistant",
         "chromedp/headless-shell",
+        "ghcr.io/karakeep-app/karakeep-chrome",
         "wangqiru/ttrss",
         "diygod/rsshub"
       ],
@@ -264,7 +265,6 @@
         "tecnativa/docker-socket-proxy",
         "slskd/slskd",
         "/(.*/)?meilisearch$/",
-        "gcr.io/zenika-hub/alpine-chrome",
         "mickey3721/flareproxy",
         "pgvector/pgvector",
         "wangqiru/mercury-parser-api",
