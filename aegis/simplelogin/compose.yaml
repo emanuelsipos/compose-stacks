@@ -14,7 +14,7 @@ x-sl-base: &sl-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: simplelogin/app-ci:v4.81.6@sha256:3abf622d85fbcb090566927c94733ad1a9b1edb215e3a1db61c1e2c116229ee5
+  image: simplelogin/app-ci:v4.81.7@sha256:97686ef14fa40ead2f4f4d13163e93a5ef6123e7f225bfdd4a079128c3bb73a7
   volumes:
     - /opt/docker/simplelogin/pgp/:/sl/pgp/
     - /opt/docker/simplelogin/upload/:/code/static/upload/
