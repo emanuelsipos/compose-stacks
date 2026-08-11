@@ -7,10 +7,13 @@ services:
       - /opt/docker/uptime-kuma/:/app/data/
     networks:
       - pangolin
+    deploy:
+      resources:
+        limits:
+          memory: ${UPTIME_KUMA_MEM_LIMIT:-512m}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${UPTIME_KUMA_MEM_LIMIT:-512m}
 
 networks:
   pangolin:

@@ -21,10 +21,13 @@ services:
         ipv6_address: "${ADDY_IPV6_ADDRESS:?Addy IPv6 address required}"
       default:
 
+    deploy:
+      resources:
+        limits:
+          memory: ${ADDY_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${ADDY_MEM_LIMIT:-1g}
   certbot:
     image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
     container_name: addy_certbot
@@ -118,10 +121,13 @@ services:
       - "mysqld"
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
+    deploy:
+      resources:
+        limits:
+          memory: ${ADDY_DATABASE_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${ADDY_DATABASE_MEM_LIMIT:-1g}
 
   db-backup:
     image: tiredofit/db-backup:4.1.100@sha256:78e3cb669ee9648c1a4ab7e8421c6e89d01b659bfa5963f7611a2347b2009eab
@@ -163,17 +169,23 @@ services:
       - /opt/docker/addy/nginx/ssl/:/etc/nginx/ssl/:ro
       - /opt/docker/addy/letsencrypt/certs/:/etc/letsencrypt/:ro
       - /opt/docker/addy/letsencrypt/www/:/var/www/:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${ADDY_NGINX_MEM_LIMIT:-256m}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${ADDY_NGINX_MEM_LIMIT:-256m}
   valkey:
     image: valkey/valkey:8-bookworm@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571
     container_name: addy_valkey
+    deploy:
+      resources:
+        limits:
+          memory: ${ADDY_VALKEY_MEM_LIMIT:-512m}
     extends:
       file: ../../_common/base.yaml
       service: x-redis
-    mem_limit: ${ADDY_VALKEY_MEM_LIMIT:-512m}
 
 networks:
   ipv6_native:

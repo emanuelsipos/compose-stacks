@@ -18,12 +18,15 @@ services:
       - '8555:8555/tcp' # WebRTC over tcp
       - '8555:8555/udp' # WebRTC over udp
       - '8971:8971'
+    deploy:
+      resources:
+        limits:
+          memory: ${FRIGATE_MEM_LIMIT:-4g}
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128 # For intel hwaccel, needs to be updated for your hardware
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${FRIGATE_MEM_LIMIT:-4g}
     # privileged: true # this may not be necessary for all setups
     # cap_add:
     #   - CAP_PERFMON

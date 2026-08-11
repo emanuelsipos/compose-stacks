@@ -2,12 +2,15 @@
 services:
   x-runtime-defaults:
     restart: unless-stopped
-    pids_limit: ${PIDS_LIMIT:-512}
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          pids: ${PIDS_LIMIT:-512}
 
   x-defaults:
     extends:

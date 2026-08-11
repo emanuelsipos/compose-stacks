@@ -7,11 +7,14 @@ x-cloudflared-base: &cloudflared-base
   depends_on:
     - nginx
 x-sl-base: &sl-base
+  deploy:
+    resources:
+      limits:
+        memory: ${SIMPLELOGIN_MEM_LIMIT:-1g}
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
   image: simplelogin/app-ci:v4.81.6@sha256:3abf622d85fbcb090566927c94733ad1a9b1edb215e3a1db61c1e2c116229ee5
-  mem_limit: ${SIMPLELOGIN_MEM_LIMIT:-1g}
   volumes:
     - /opt/docker/simplelogin/pgp/:/sl/pgp/
     - /opt/docker/simplelogin/upload/:/code/static/upload/
@@ -109,10 +112,13 @@ services:
       POST: 0
     networks:
       - socket_proxy
+    deploy:
+      resources:
+        limits:
+          memory: ${SIMPLELOGIN_SOCKET_PROXY_MEM_LIMIT:-256m}
     extends:
       file: ../../_common/base.yaml
       service: x-docker-socket-proxy
-    mem_limit: ${SIMPLELOGIN_SOCKET_PROXY_MEM_LIMIT:-256m}
 
   email:
     container_name: sl-email
@@ -158,10 +164,13 @@ services:
       - /opt/docker/simplelogin/nginx/ssl/:/etc/nginx/ssl/:ro
       - /opt/docker/simplelogin/letsencrypt/certs/:/etc/letsencrypt/:ro
       - /opt/docker/simplelogin/letsencrypt/www/:/var/www/:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${SIMPLELOGIN_NGINX_MEM_LIMIT:-256m}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${SIMPLELOGIN_NGINX_MEM_LIMIT:-256m}
   postfix:
     image: simplelogin/postfix:4.3.3@sha256:b0e945aee53a4d0e2a1b3e4767ddd2a96e94c8123b89badca4e02e9338c61ab5
     container_name: postfix
@@ -173,10 +182,13 @@ services:
     env_file: .env
     ports:
       - '25:25'
+    deploy:
+      resources:
+        limits:
+          memory: ${SIMPLELOGIN_POSTFIX_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${SIMPLELOGIN_POSTFIX_MEM_LIMIT:-1g}
 
   postgres:
     image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:5d287ede0df43f7f448b7e56f8c4f6a79197318b15d90254a9d6a85eb7686fb0
@@ -189,10 +201,13 @@ services:
       interval: 10s
       retries: 3
       start_period: 1s
+    deploy:
+      resources:
+        limits:
+          memory: ${SIMPLELOGIN_POSTGRES_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${SIMPLELOGIN_POSTGRES_MEM_LIMIT:-1g}
 
 networks:
   default:

@@ -24,9 +24,12 @@ services:
     env_file: .env
     ports:
       - '9999:9999'
+    deploy:
+      resources:
+        limits:
+          memory: ${STASH_MEM_LIMIT:-2g}
     devices:
       - /dev/dri/:/dev/dri/
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${STASH_MEM_LIMIT:-2g}

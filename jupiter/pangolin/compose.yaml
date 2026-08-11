@@ -62,10 +62,13 @@ services:
       interval: "3s"
       timeout: "3s"
       retries: 15
+    deploy:
+      resources:
+        limits:
+          memory: ${PANGOLIN_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${PANGOLIN_MEM_LIMIT:-1g}
 
   # gerbil:
   #   extends:
@@ -119,10 +122,13 @@ services:
         ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
     command:
       - --configFile=/etc/traefik/traefik_config.yml
+    deploy:
+      resources:
+        limits:
+          memory: ${TRAEFIK_MEM_LIMIT:-1g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${TRAEFIK_MEM_LIMIT:-1g}
 
 networks:
   default:

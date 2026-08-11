@@ -18,10 +18,12 @@ services:
     cpu_shares: 128
     deploy:
       replicas: ${RUNNER_REPLICAS}
+      resources:
+        limits:
+          pids: ${RUNNER_PIDS_LIMIT:-2048}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    pids_limit: ${RUNNER_PIDS_LIMIT:-2048}
     # Required for Docker-in-Docker (DinD): runner builds CI container images
     # inside the container. Mitigations: ephemeral runners (EPHEMERAL: 1),
     # tmpfs-only working state, org-scoped token (not repo-scoped PAT).

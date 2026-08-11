@@ -67,9 +67,12 @@ services:
       timeout: 30s
       retries: 3
       start_period: 2m
+    deploy:
+      resources:
+        limits:
+          memory: ${PLEX_MEM_LIMIT:-4g}
     devices:
       - /dev/dri/:/dev/dri/
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
-    mem_limit: ${PLEX_MEM_LIMIT:-4g}
