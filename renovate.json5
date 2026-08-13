@@ -248,7 +248,7 @@
         "ghcr.io/music-assistant/server",
         "stashapp/stash",
         "ghcr.io/rustic-rs/rustic",
-        "robertlordhood/chaptarr",
+        "chaptarr/chaptarr",
         "basqpcez/mam-point-spender",
         "mcuadros/ofelia",
         "ghcr.io/matter-js/python-matter-server",
