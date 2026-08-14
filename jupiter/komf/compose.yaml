@@ -3,7 +3,7 @@ x-komf-base: &komf-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: ghcr.io/thoughtzthrukeyz/komf:latest@sha256:a9dc705e43c5e67e4075b67e53bacf1a394240df3b928aa36eeaecd3ae4c3881
+  image: ghcr.io/loocool2/komf:latest@sha256:106f1785d21dca97467483f15763ef061697b82769d31bb0df74bb9068bc336e
   environment:
     KOMF_LOG_LEVEL: INFO
     TZ: ${TZ:-UTC}
