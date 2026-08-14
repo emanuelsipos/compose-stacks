@@ -3,7 +3,7 @@ x-suwayomi-base: &suwayomi-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: ghcr.io/suwayomi/suwayomi-server:v2.3.2298@sha256:1310a51391418d77614aabe990f43213bda818275fcc408b3a21bfe419813ec4
+  image: ghcr.io/suwayomi/suwayomi-server:v2.3.2320@sha256:d2c3218c7f9f88087fb8ef24975a23cc8b1e45e00f4260c08c7e99f248d9d278
   user: "${PUID:-1000}:${PGID:-1000}"
   environment: &suwayomi-env
     FLARESOLVERR_ENABLED: "true"
