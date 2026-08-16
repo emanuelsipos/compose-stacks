@@ -87,7 +87,6 @@ services:
       - /mnt/data3/:/data3/
     environment:
       - TZ=${TZ}
-      - PAGID=${PAGID}
       - PUID=${PUID}
       - PGID=${PGID}
       - UMASK=${UMASK}
