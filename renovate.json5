@@ -252,6 +252,7 @@
         "mcuadros/ofelia",
         "ghcr.io/matter-js/python-matter-server",
         "ghcr.io/maintainerr/maintainerr",
+        "ghcr.io/mealie-recipes/mealie",
         "erikvl87/languagetool",
         "pgautoupgrade/pgautoupgrade",
         "healthchecks/healthchecks",
