@@ -1,0 +1,50 @@
+---
+services:
+  database.postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:5d287ede0df43f7f448b7e56f8c4f6a79197318b15d90254a9d6a85eb7686fb0
+    container_name: mealie_postgres
+    volumes:
+      - /opt/docker/mealie/database/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?database password required}
+      POSTGRES_USER: ${POSTGRES_USER:-mealie}
+      POSTGRES_DB: ${POSTGRES_DB:-mealie}
+    deploy:
+      resources:
+        limits:
+          memory: ${MEALIE_DATABASE_MEM_LIMIT:-1g}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
+
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.22.0@sha256:36c28f0642fb6c75fae8997a2d55994631b9b4bcffba3016c208fc132a4c1e69
+    container_name: mealie
+    depends_on:
+      database.postgres:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/mealie/data/:/app/data/
+    environment:
+      DB_ENGINE: postgres
+      POSTGRES_SERVER: database.postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-mealie}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?database password required}
+      POSTGRES_DB: ${POSTGRES_DB:-mealie}
+    env_file: .env
+    ports:
+      - '9925:9000'
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://127.0.0.1:9000/api/app/about" ]
+      start_period: 30s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${MEALIE_MEM_LIMIT:-1g}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
