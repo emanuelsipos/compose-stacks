@@ -8,7 +8,7 @@ x-suwayomi-base: &suwayomi-base
   environment: &suwayomi-env
     FLARESOLVERR_ENABLED: "true"
     FLARESOLVERR_URL: http://flaresolverr:8191
-    JAVA_TOOL_OPTIONS: -Xms512m -Xmx2048m
+    JAVA_TOOL_OPTIONS: -Xms256m -Xmx2048m
   env_file: .env
   deploy:
     resources:

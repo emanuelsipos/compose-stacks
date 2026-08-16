@@ -19,7 +19,7 @@ services:
       - /mnt/data2/torrents/manga/:/data2/torrents/manga/
     environment:
       - MALLOC_ARENA_MAX=2
-      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms4g -Xmx6g -XX:MaxDirectMemorySize=2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError
+      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms1g -Xmx6g -XX:MaxDirectMemorySize=2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError
     ports:
       - '25600:25600'
     <<: *komga-base
@@ -36,7 +36,7 @@ services:
       - /opt/docker/komga2/:/config/
     environment:
       - MALLOC_ARENA_MAX=2
-      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms2g -Xmx3g -XX:MaxDirectMemorySize=1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication
+      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -Xms512m -Xmx3g -XX:MaxDirectMemorySize=1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication
     ports:
       - '25601:25600'
     <<: *komga-base
