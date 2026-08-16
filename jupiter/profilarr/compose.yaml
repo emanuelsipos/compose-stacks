@@ -11,6 +11,7 @@ x-profilarr-base: &profilarr-base
   depends_on:
     parser:
       condition: service_healthy
+  init: true
 
 services:
   parser:
@@ -21,6 +22,7 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    init: true
 
   profilarr-anime:
     container_name: profilarr-anime
