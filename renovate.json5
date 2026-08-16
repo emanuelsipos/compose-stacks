@@ -233,7 +233,6 @@
         "ghcr.io/games-on-whales/wolf",
         "lscr.io/linuxserver/syncthing",
         "filebrowser/filebrowser",
-        "ghcr.io/linkwarden/linkwarden",
         "ghcr.io/immich-app/immich-machine-learning",
         "ghcr.io/immich-app/immich-server",
         "remnawave/*",
