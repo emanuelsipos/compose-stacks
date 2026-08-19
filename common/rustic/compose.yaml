@@ -1,7 +1,7 @@
 ---
 services:
   rustic:
-    image: ghcr.io/rustic-rs/rustic:v0.11.3@sha256:3b2adbf50e4443e7b736339efdbb00f6eec5d9897ae0843f526cdab7fc40d45f
+    image: ghcr.io/rustic-rs/rustic:v0.11.4@sha256:bb8e60aef240ca54ea1091f42f07d48f552edf8474062e55b5c72e7cdf3a9949
     container_name: rustic
     volumes:
       - /opt/docker/rustic/config/:/.config/rustic/:ro
