@@ -18,7 +18,7 @@ services:
       # - "127.0.0.1:8000:8000"
     networks:
       ipv6_native:
-        ipv6_address: "${ADDY_IPV6_ADDRESS:?Addy IPv6 address required}"
+        ipv6_address: ${ADDY_IPV6_ADDRESS:?Addy IPv6 address required}
       default:
 
     deploy:
