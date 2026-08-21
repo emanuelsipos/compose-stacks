@@ -56,6 +56,10 @@ services:
     ports:
       - '4569:4567'
     <<: *suwayomi-base
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
 
   suwayomi-webtoons2:
     container_name: suwayomi-webtoons2
