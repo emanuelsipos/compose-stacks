@@ -56,4 +56,3 @@ services:
       - TZ=${TZ}
     expose:
       - '8191'
-    init: true
