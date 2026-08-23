@@ -1,54 +1,5 @@
 ---
 services:
-  crowdsec:
-    image: crowdsecurity/crowdsec:v1.7.8@sha256:2f527c9bb8b367120eb08b82890aa912ce96bfa1ada93dda0721700e4b4e0dde
-    container_name: crowdsec
-    depends_on:
-      - docker-socket-proxy
-    volumes:
-      - /opt/docker/pangolin/crowdsec/:/etc/crowdsec/
-      - /opt/docker/pangolin/crowdsec/db/:/var/lib/crowdsec/data/
-      - /opt/docker/pangolin/traefik/logs/:/var/log/traefik/
-    environment:
-      COLLECTIONS: crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
-      ENROLL_INSTANCE_NAME: pangolin-jupiter
-      ENROLL_TAGS: docker
-      GID: "1000"
-      PARSERS: crowdsecurity/whitelists
-      DOCKER_HOST: tcp://docker-socket-proxy:2375
-    networks:
-      default:
-      socket_proxy:
-    command: -t
-    healthcheck:
-      test:
-        - CMD
-        - cscli
-        - lapi
-        - status
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    labels:
-      - traefik.enable=false
-    extends:
-      file: ../../_common/base.yaml
-      service: x-defaults
-
-  docker-socket-proxy:
-    container_name: pangolin_docker-socket-proxy
-    environment:
-      CONTAINERS: 1
-      EVENTS: 1
-      INFO: 1
-      POST: 0
-    networks:
-      - socket_proxy
-    extends:
-      file: ../../_common/base.yaml
-      service: x-docker-socket-proxy
-
   pangolin:
     image: fosrl/pangolin:1.21.1@sha256:dd3ccdce1ae340b73a8b7dffcdd34dc1f73e81c7b2cce14b224d841822e4541d
     container_name: pangolin
@@ -101,8 +52,6 @@ services:
     image: traefik:v3.7.11@sha256:5203c3f39ca70de6790d964624e042463ffbd57715bc82be155cf224c0dd5144
     container_name: traefik
     depends_on:
-      # crowdsec:
-      #   condition: service_healthy
       pangolin:
         condition: service_healthy
         restart: true
@@ -137,6 +86,3 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
-  socket_proxy:
-    driver: bridge
-    internal: true
