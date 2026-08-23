@@ -16,7 +16,7 @@ services:
       service: x-docker-socket-proxy
 
   fileflows:
-    image: revenz/fileflows:26.07@sha256:a9ce79d8ad21a37ff1579f59cfa8844aded4026fd094e5a893ff476ffe0eaf93
+    image: revenz/fileflows:26.08@sha256:75969644f9304cd22070fa6879d0cdc3f433fb3461a6dec2e2f8cc98625d582a
     depends_on:
       - docker-socket-proxy
     volumes:
