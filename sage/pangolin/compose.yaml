@@ -35,6 +35,9 @@ services:
     container_name: cloudflared-public
     volumes:
       - /opt/docker/pangolin/cloudflared-public/:/etc/cloudflared/
+    networks:
+      default:
+        ipv4_address: 172.20.0.250
     <<: *cloudflared-base
 
   crowdsec:
@@ -58,11 +61,10 @@ services:
       PARSERS: crowdsecurity/whitelists
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     ports:
-      - '${TAILSCALE_IP}:8080:8080'
       - '127.0.0.1:6060:6060'
       - '127.0.0.1:8080:8080'
     networks:
-      default:
+      crowdsec_net:
       socket_proxy:
     command: -t
     healthcheck:
@@ -113,6 +115,7 @@ services:
     networks:
       default:
         ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
+      crowdsec_net:
     command:
       - --reachableAt=http://gerbil:3004
       - --generateAndSaveKeyTo=/var/config/key
@@ -176,6 +179,10 @@ services:
       service: x-defaults
 
 networks:
+  crowdsec_net:
+    driver: bridge
+    internal: true
+    name: pangolin-crowdsec
   default:
     driver: bridge
     name: pangolin
