@@ -65,6 +65,7 @@ services:
       - '127.0.0.1:8080:8080'
     networks:
       crowdsec_net:
+        ipv4_address: 172.30.250.3
       socket_proxy:
     command: -t
     healthcheck:
@@ -116,6 +117,7 @@ services:
       default:
         ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
       crowdsec_net:
+        ipv4_address: 172.30.250.2
     command:
       - --reachableAt=http://gerbil:3004
       - --generateAndSaveKeyTo=/var/config/key
@@ -181,7 +183,9 @@ services:
 networks:
   crowdsec_net:
     driver: bridge
-    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29
     name: pangolin-crowdsec
   default:
     driver: bridge
