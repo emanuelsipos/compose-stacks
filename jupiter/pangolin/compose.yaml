@@ -66,6 +66,7 @@ services:
       - '443:443'
       - '6697:6697/tcp'
       - '6697:6697/udp'
+      - '8883:8883/tcp'
     networks:
       default:
         ipv4_address: ${PANGOLIN_GATEWAY_IP:-172.20.0.251}
