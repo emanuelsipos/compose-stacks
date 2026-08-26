@@ -46,47 +46,60 @@ status() {
 
 fail() {
   status "failed: $1"
-  exit 1
+  return 1
 }
 
-command -v docker >/dev/null 2>&1 || fail 'docker is unavailable'
-command -v grep >/dev/null 2>&1 || fail 'grep is unavailable'
-command -v mktemp >/dev/null 2>&1 || fail 'mktemp is unavailable'
-command -v timeout >/dev/null 2>&1 || fail 'timeout is unavailable'
-docker container inspect "$container" >/dev/null 2>&1 || fail 'container does not exist'
-
-output_file=$(mktemp) || fail 'cannot create temporary output file'
+output_file=
 cleanup() {
-  rm -f "$output_file"
+  [ -z "$output_file" ] || rm -f "$output_file"
 }
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
 
-running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || fail 'cannot inspect container state'
-[ "$running" = false ] || fail 'container is already running'
+main() {
+  command -v docker >/dev/null 2>&1 || { fail 'docker is unavailable'; return; }
+  command -v grep >/dev/null 2>&1 || { fail 'grep is unavailable'; return; }
+  command -v mktemp >/dev/null 2>&1 || { fail 'mktemp is unavailable'; return; }
+  command -v timeout >/dev/null 2>&1 || { fail 'timeout is unavailable'; return; }
+  docker container inspect "$container" >/dev/null 2>&1 || { fail 'container does not exist'; return; }
 
-status 'starting container'
-start_rc=0
-timeout "$timeout_seconds"s docker start -a "$container" >"$output_file" 2>&1 || start_rc=$?
+  output_file=$(mktemp) || { fail 'cannot create temporary output file'; return; }
 
-if [ "$start_rc" -ne 0 ]; then
-  running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || fail 'cannot inspect container after failed start'
-  if [ "$running" = true ]; then
-    timeout 15s docker stop "$container" >/dev/null 2>&1 || true
+  running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state'; return; }
+  [ "$running" = false ] || { fail 'container is already running'; return; }
+
+  status 'starting container'
+  start_rc=0
+  timeout "$timeout_seconds"s docker start -a "$container" >"$output_file" 2>&1 || start_rc=$?
+
+  if [ "$start_rc" -ne 0 ]; then
+    running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container after failed start'; return; }
+    if [ "$running" = true ]; then
+      timeout 15s docker stop "$container" >/dev/null 2>&1 || true
+    fi
+    if [ "$start_rc" -eq 124 ]; then
+      fail 'container timed out'
+      return
+    fi
   fi
-  [ "$start_rc" -eq 124 ] && fail 'container timed out'
-fi
 
-state=$(docker container inspect -f '{{.State.Status}}' "$container" 2>/dev/null) || fail 'cannot inspect final container state'
-exit_code=$(docker container inspect -f '{{.State.ExitCode}}' "$container" 2>/dev/null) || fail 'cannot inspect final container exit code'
-[ "$state" = exited ] || fail 'container did not exit'
-[ "$exit_code" = 0 ] || fail 'container exited nonzero'
-[ "$start_rc" -eq 0 ] || fail 'container start command failed'
-if grep -q 'komodo-deploy-hook:' "$output_file" && \
-  ! grep -q 'komodo-deploy-hook: reload requested' "$output_file"; then
-  fail 'deploy hook reported failure'
-fi
-status 'completed successfully'`;
+  state=$(docker container inspect -f '{{.State.Status}}' "$container" 2>/dev/null) || { fail 'cannot inspect final container state'; return; }
+  exit_code=$(docker container inspect -f '{{.State.ExitCode}}' "$container" 2>/dev/null) || { fail 'cannot inspect final container exit code'; return; }
+  [ "$state" = exited ] || { fail 'container did not exit'; return; }
+  [ "$exit_code" = 0 ] || { fail 'container exited nonzero'; return; }
+  [ "$start_rc" -eq 0 ] || { fail 'container start command failed'; return; }
+  if grep -q 'komodo-deploy-hook:' "$output_file" && \
+    ! grep -q 'komodo-deploy-hook: reload requested' "$output_file"; then
+    fail 'deploy hook reported failure'
+    return
+  fi
+  status 'completed successfully'
+}
+
+trap cleanup HUP INT TERM
+main
+result=$?
+cleanup
+trap - HUP INT TERM
+(exit "$result")`;
 
 const terminal = `run-one-shot-container-${container}`;
 let terminalExitCode;

@@ -56,31 +56,37 @@ status() {
 
 fail() {
   status "failed: $1"
-  exit 1
+  return 1
 }
 
-command -v docker >/dev/null 2>&1 || fail 'docker is unavailable'
-docker container inspect "$container" >/dev/null 2>&1 || fail 'container does not exist'
+main() {
+  command -v docker >/dev/null 2>&1 || { fail 'docker is unavailable'; return; }
+  docker container inspect "$container" >/dev/null 2>&1 || { fail 'container does not exist'; return; }
 
-running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || fail 'cannot inspect container state'
-[ "$running" = true ] || fail 'container is not running'
+  running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state'; return; }
+  [ "$running" = true ] || { fail 'container is not running'; return; }
 
-signal_rc=0
-docker kill --signal "$signal" "$container" >/dev/null 2>&1 || signal_rc=$?
-sleep 1
-running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || fail 'cannot inspect container state after signal'
+  signal_rc=0
+  docker kill --signal "$signal" "$container" >/dev/null 2>&1 || signal_rc=$?
+  sleep 1
+  running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state after signal'; return; }
 
-if [ "$signal_rc" -eq 0 ] && [ "$running" = true ]; then
-  status 'signal delivered'
-  exit 0
-fi
+  if [ "$signal_rc" -eq 0 ] && [ "$running" = true ]; then
+    status 'signal delivered'
+    return 0
+  fi
 
-[ "$fallback_restart" = 1 ] || fail 'signal did not leave container running'
-status 'restarting container'
-docker restart "$container" >/dev/null 2>&1 || fail 'container restart failed'
-running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || fail 'cannot inspect container state after restart'
-[ "$running" = true ] || fail 'container is not running after restart'
-status 'container running'`;
+  [ "$fallback_restart" = 1 ] || { fail 'signal did not leave container running'; return; }
+  status 'restarting container'
+  docker restart "$container" >/dev/null 2>&1 || { fail 'container restart failed'; return; }
+  running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state after restart'; return; }
+  [ "$running" = true ] || { fail 'container is not running after restart'; return; }
+  status 'container running'
+}
+
+main
+result=$?
+(exit "$result")`;
 
 const terminal = `reload-container-${container}`;
 let terminalExitCode;
