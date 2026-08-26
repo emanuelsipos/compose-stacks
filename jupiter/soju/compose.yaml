@@ -9,7 +9,7 @@ services:
       - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
       - /opt/docker/soju/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
     environment:
-      CERT_CONSUMER_GID: "0"
+      CERT_CONSUMER_GID: "65532"
       KOMODO_WEBHOOK_URL: ${SOJU_CERT_RELOAD_WEBHOOK_URL:?SOJU_CERT_RELOAD_WEBHOOK_URL required}
       KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
     command: >-
@@ -61,6 +61,9 @@ services:
       default:
         aliases:
           - gamja-backend
+    user: 65532:65532
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
@@ -68,6 +71,8 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
     tmpfs:
       - /tmp/
 
