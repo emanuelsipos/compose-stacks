@@ -21,12 +21,18 @@ def main():
     try:
         lineage_value = os.environ["RENEWED_LINEAGE"]
         consumer_gid_value = os.environ["CERT_CONSUMER_GID"]
+        consumer_dir_mode_value = os.environ.get(
+            "CERT_CONSUMER_DIR_MODE", "710"
+        )
         webhook_url = os.environ["KOMODO_WEBHOOK_URL"]
         secret_file = os.environ["KOMODO_WEBHOOK_SECRET_FILE"]
 
         if not consumer_gid_value.isascii() or not consumer_gid_value.isdigit():
             raise HookFailure("invalid consumer group")
         consumer_gid = int(consumer_gid_value)
+        if consumer_dir_mode_value not in {"710", "750"}:
+            raise HookFailure("invalid consumer directory mode")
+        consumer_dir_mode = int(consumer_dir_mode_value, 8)
 
         parsed_url = parse.urlsplit(webhook_url)
         if (
@@ -76,7 +82,7 @@ def main():
 
         for directory in directories:
             os.chown(directory, owner_uid, consumer_gid)
-            os.chmod(directory, 0o710)
+            os.chmod(directory, consumer_dir_mode)
         os.chown(fullchain, owner_uid, consumer_gid)
         os.chmod(fullchain, 0o644)
         os.chown(privkey, owner_uid, consumer_gid)

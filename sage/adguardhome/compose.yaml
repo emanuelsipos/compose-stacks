@@ -16,6 +16,11 @@ services:
     networks:
       - default
       - pangolin
+    user: 65534:65534
+    cap_add:
+      - NET_BIND_SERVICE
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
@@ -23,6 +28,8 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "1024"
 
   certbot:
     image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
@@ -33,7 +40,8 @@ services:
       - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
       - /opt/docker/adguard/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
     environment:
-      CERT_CONSUMER_GID: "0"
+      CERT_CONSUMER_DIR_MODE: "750"
+      CERT_CONSUMER_GID: "65534"
       KOMODO_WEBHOOK_URL: ${ADGUARDHOME_CERT_RELOAD_WEBHOOK_URL:?ADGUARDHOME_CERT_RELOAD_WEBHOOK_URL required}
       KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
     command: >-
