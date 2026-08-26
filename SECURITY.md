@@ -33,7 +33,7 @@ Compensating controls:
 - services are not exposed to untrusted users;
 - Wolf runs on a dedicated host and is treated as host-equivalent code.
 
-Accepted paths: `_common/base.yaml`, `aegis/addy`, `aegis/simplelogin`, `jupiter/fileflows`, `jupiter/pangolin`, `jupiter/qbittorrent`, `jupiter/wolf`, and `sage/pangolin`.
+Accepted paths: `_common/base.yaml`, `aegis/addy`, `jupiter/fileflows`, `jupiter/pangolin`, `jupiter/qbittorrent`, `jupiter/wolf`, and `sage/pangolin`.
 
 ### Privileged CI containers
 
@@ -66,7 +66,7 @@ Compensating controls:
 - services are scoped to trusted hosts and networks;
 - backup and media paths are separated from application configuration.
 
-Accepted paths: `_common/base.yaml`, `aegis/addy`, `aegis/filebrowser`, `aegis/simplelogin`, `common/rustic`, `jupiter/fileflows`, `jupiter/frigate`, `jupiter/home-assistant`, `jupiter/immich`, `jupiter/pangolin`, `jupiter/qbittorrent`, `jupiter/rustic`, `jupiter/suwayomi`, `jupiter/wolf`, `jupiter/zigbee2mqtt`, and `sage/pangolin`.
+Accepted paths: `_common/base.yaml`, `aegis/addy`, `aegis/filebrowser`, `common/rustic`, `jupiter/fileflows`, `jupiter/frigate`, `jupiter/home-assistant`, `jupiter/immich`, `jupiter/pangolin`, `jupiter/qbittorrent`, `jupiter/rustic`, `jupiter/suwayomi`, `jupiter/wolf`, `jupiter/zigbee2mqtt`, and `sage/pangolin`.
 
 ## Reporting
 

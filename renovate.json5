@@ -66,12 +66,6 @@
       ]
     },
     {
-      "groupName": "simplelogin",
-      "matchPackageNames": [
-        "simplelogin/*"
-      ]
-    },
-    {
       "groupName": "soju",
       "matchPackageNames": [
         "codeberg.org/emersion/*"
@@ -188,8 +182,6 @@
         "crowdsecurity/crowdsec",
         "tiredofit/db-backup",
         "nginx",
-        "simplelogin/app-ci",
-        "simplelogin/postfix",
         "ghcr.io/bakito/adguardhome-sync",
         "ghcr.io/moghtech/komodo-core",
         "ghcr.io/ente/server",
