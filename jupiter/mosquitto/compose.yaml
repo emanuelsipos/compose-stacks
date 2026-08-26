@@ -29,7 +29,6 @@ services:
       - /opt/docker/mosquitto/letsencrypt/certs/live/:/mosquitto/certs/live/:ro
       - /opt/docker/mosquitto/letsencrypt/certs/archive/:/mosquitto/certs/archive/:ro
     ports:
-      - '1883:1883'
       - '8883:8883'
     user: 65532:65532
     extends:
