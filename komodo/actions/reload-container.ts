@@ -22,6 +22,14 @@ function optionalSignal() {
   return value;
 }
 
+function optionalMode() {
+  const value = ARGS.mode === undefined || ARGS.mode === null || ARGS.mode === "" ? "signal" : String(ARGS.mode);
+  if (value !== "signal" && value !== "restart") {
+    throw new Error("Action argument must be signal or restart: mode");
+  }
+  return value;
+}
+
 function optionalBoolean(name, defaultValue) {
   const value = ARGS[name];
   if (value === undefined || value === null || value === "") {
@@ -42,11 +50,13 @@ function shellQuote(value) {
 
 const server = requiredString("server");
 const container = containerName("container");
+const mode = optionalMode();
 const signal = optionalSignal();
 const fallbackRestart = optionalBoolean("fallback_restart", true) ? "1" : "0";
 
 const command = `set -u
 container=${shellQuote(container)}
+mode=${shellQuote(mode)}
 signal=${shellQuote(signal)}
 fallback_restart=${shellQuote(fallbackRestart)}
 
@@ -66,6 +76,16 @@ main() {
   running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state'; return; }
   [ "$running" = true ] || { fail 'container is not running'; return; }
 
+  if [ "$mode" = restart ]; then
+    status 'restarting container'
+    docker restart "$container" >/dev/null 2>&1 || { fail 'container restart failed'; return; }
+    sleep 1
+    running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state after restart'; return; }
+    [ "$running" = true ] || { fail 'container is not running after restart'; return; }
+    status 'container running'
+    return 0
+  fi
+
   signal_rc=0
   docker kill --signal "$signal" "$container" >/dev/null 2>&1 || signal_rc=$?
   sleep 1
@@ -79,6 +99,7 @@ main() {
   [ "$fallback_restart" = 1 ] || { fail 'signal did not leave container running'; return; }
   status 'restarting container'
   docker restart "$container" >/dev/null 2>&1 || { fail 'container restart failed'; return; }
+  sleep 1
   running=$(docker container inspect -f '{{.State.Running}}' "$container" 2>/dev/null) || { fail 'cannot inspect container state after restart'; return; }
   [ "$running" = true ] || { fail 'container is not running after restart'; return; }
   status 'container running'

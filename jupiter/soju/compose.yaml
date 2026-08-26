@@ -2,11 +2,18 @@
 services:
   certbot:
     image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
+    container_name: soju_certbot
     volumes:
       - /opt/docker/soju/letsencrypt/certs/:/etc/letsencrypt/
       - /opt/docker/soju/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
-    command: >
-      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${HOSTNAME} --agree-tos --non-interactive
+      - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
+      - /opt/docker/soju/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
+    environment:
+      CERT_CONSUMER_GID: "0"
+      KOMODO_WEBHOOK_URL: ${SOJU_CERT_RELOAD_WEBHOOK_URL:?SOJU_CERT_RELOAD_WEBHOOK_URL required}
+      KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
+    command: >-
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 --deploy-hook /usr/local/bin/komodo-deploy-hook -d ${SOJU_DOMAIN:?SOJU_DOMAIN required} --agree-tos --non-interactive --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL required}
     restart: "no"
     extends:
       file: ../../_common/base.yaml
@@ -41,11 +48,13 @@ services:
 
   soju:
     image: codeberg.org/emersion/soju:v0.10.1@sha256:c0473d8f19554a03790f2a475d59646600f2f384b07b296afa782aec4c40253d
+    container_name: soju
     volumes:
       - /opt/docker/soju/soju-config:/soju-config:ro
       - /opt/docker/soju/db/:/db/
       - /opt/docker/soju/uploads/:/uploads/
-      - /opt/docker/soju/letsencrypt/certs/:/letsencrypt/
+      - /opt/docker/soju/letsencrypt/certs/live/:/letsencrypt/live/:ro
+      - /opt/docker/soju/letsencrypt/certs/archive/:/letsencrypt/archive/:ro
     ports:
       - '6697:6697'
     networks:

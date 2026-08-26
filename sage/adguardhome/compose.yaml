@@ -9,7 +9,8 @@ services:
       - /opt/docker/adguard/work/:/opt/adguardhome/work/
       - /opt/docker/adguard/conf/:/opt/adguardhome/conf/
       - /opt/docker/adguard/logs/:/opt/adguardhome/logs/
-      - /opt/docker/adguard/letsencrypt/certs/:/mnt/certs/:ro
+      - /opt/docker/adguard/letsencrypt/certs/live/:/mnt/certs/live/:ro
+      - /opt/docker/adguard/letsencrypt/certs/archive/:/mnt/certs/archive/:ro
     ports:
       - '853:853'
     networks:
@@ -25,12 +26,18 @@ services:
 
   certbot:
     image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
-    container_name: certbot
+    container_name: adguardhome_certbot
     volumes:
       - /opt/docker/adguard/letsencrypt/certs/:/etc/letsencrypt/
       - /opt/docker/adguard/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
-    command: >
-      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${DNS_DOMAIN} -d *.${DNS_DOMAIN} --agree-tos --non-interactive
+      - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
+      - /opt/docker/adguard/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
+    environment:
+      CERT_CONSUMER_GID: "0"
+      KOMODO_WEBHOOK_URL: ${ADGUARDHOME_CERT_RELOAD_WEBHOOK_URL:?ADGUARDHOME_CERT_RELOAD_WEBHOOK_URL required}
+      KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
+    command: >-
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 --deploy-hook /usr/local/bin/komodo-deploy-hook -d ${DNS_DOMAIN:?DNS_DOMAIN required} -d *.${DNS_DOMAIN:?DNS_DOMAIN required} --agree-tos --non-interactive --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL required}
     restart: "no"
     extends:
       file: ../../_common/base.yaml

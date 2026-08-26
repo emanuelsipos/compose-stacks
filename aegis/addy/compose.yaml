@@ -10,7 +10,8 @@ services:
       - /opt/docker/addy/addy/:/data/
       - /opt/docker/addy/dkim_signing.conf:/etc/rspamd/override.d/dkim_signing.conf
       # - /opt/docker/addy/greylist.conf:/etc/rspamd/override.d/greylist.conf
-      - /opt/docker/addy/letsencrypt/certs/:/mnt/certs/:ro
+      - /opt/docker/addy/letsencrypt/certs/live/:/mnt/certs/live/:ro
+      - /opt/docker/addy/letsencrypt/certs/archive/:/mnt/certs/archive/:ro
       # - /opt/docker/addy/fix-postfix.sh:/etc/cont-init.d/16-fix-postfix.sh:ro
     env_file: .env
     ports:
@@ -34,8 +35,14 @@ services:
     volumes:
       - /opt/docker/addy/letsencrypt/certs/:/etc/letsencrypt/
       - /opt/docker/addy/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
-    command: >
-      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 -d ${ANONADDY_DOMAIN} -d *.${ANONADDY_DOMAIN} --agree-tos --non-interactive
+      - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
+      - /opt/docker/addy/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
+    environment:
+      CERT_CONSUMER_GID: "0"
+      KOMODO_WEBHOOK_URL: ${ADDY_CERT_RELOAD_WEBHOOK_URL:?ADDY_CERT_RELOAD_WEBHOOK_URL required}
+      KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
+    command: >-
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 --deploy-hook /usr/local/bin/komodo-deploy-hook -d ${ANONADDY_DOMAIN:?ANONADDY_DOMAIN required} -d *.${ANONADDY_DOMAIN:?ANONADDY_DOMAIN required} --agree-tos --non-interactive --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL required}
     restart: "no"
     extends:
       file: ../../_common/base.yaml
@@ -167,7 +174,8 @@ services:
     volumes:
       - /opt/docker/addy/nginx/conf.d/:/etc/nginx/conf.d/:ro
       - /opt/docker/addy/nginx/ssl/:/etc/nginx/ssl/:ro
-      - /opt/docker/addy/letsencrypt/certs/:/etc/letsencrypt/:ro
+      - /opt/docker/addy/letsencrypt/certs/live/:/etc/letsencrypt/live/:ro
+      - /opt/docker/addy/letsencrypt/certs/archive/:/etc/letsencrypt/archive/:ro
       - /opt/docker/addy/letsencrypt/www/:/var/www/:ro
     deploy:
       resources:
