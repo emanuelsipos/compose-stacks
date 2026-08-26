@@ -1,5 +1,24 @@
 ---
 services:
+  certbot:
+    image: certbot/dns-cloudflare:v5.7.0@sha256:3bd60102cdef55294a44ffbff10bb54dd086803aa57d3f854933b756d305fbb8
+    container_name: mosquitto_certbot
+    volumes:
+      - /opt/docker/mosquitto/letsencrypt/certs/:/etc/letsencrypt/
+      - /opt/docker/mosquitto/letsencrypt/cloudflare.ini:/cloudflare.ini:ro
+      - ../../_common/certbot/komodo-deploy-hook.py:/usr/local/bin/komodo-deploy-hook:ro
+      - /opt/docker/mosquitto/letsencrypt/komodo-webhook.secret:/run/secrets/komodo-webhook:ro
+    environment:
+      CERT_CONSUMER_GID: "65532"
+      KOMODO_WEBHOOK_URL: ${MQTT_CERT_RELOAD_WEBHOOK_URL:?MQTT_CERT_RELOAD_WEBHOOK_URL required}
+      KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
+    command: >
+      certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 --deploy-hook /usr/local/bin/komodo-deploy-hook -d ${MQTT_DOMAIN:?MQTT_DOMAIN required} --agree-tos --non-interactive --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL required}
+    restart: "no"
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine@sha256:6f8d8a947c506f8a2290ec65cd4bd2bc7cb4d43fb5f6271f861cb013e2ef9797
     container_name: mosquitto
@@ -7,8 +26,11 @@ services:
       - /opt/docker/mosquitto/config/:/mosquitto/config/
       - /opt/docker/mosquitto/data/:/mosquitto/data/
       - /opt/docker/mosquitto/log/:/mosquitto/log
+      - /opt/docker/mosquitto/letsencrypt/certs/live/:/mosquitto/certs/live/:ro
+      - /opt/docker/mosquitto/letsencrypt/certs/archive/:/mosquitto/certs/archive/:ro
     ports:
       - '1883:1883'
+      - '8883:8883'
     user: 65532:65532
     extends:
       file: ../../_common/base.yaml
