@@ -21,6 +21,8 @@ services:
     depends_on:
       database.postgres:
         condition: service_healthy
+    volumes:
+      - /opt/docker/semaphore/tmp/:/tmp/semaphore/
     environment:
       SEMAPHORE_DB_DIALECT: postgres
       SEMAPHORE_DB_HOST: 127.0.0.1
