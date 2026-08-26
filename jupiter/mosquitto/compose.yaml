@@ -12,7 +12,7 @@ services:
       CERT_CONSUMER_GID: "65532"
       KOMODO_WEBHOOK_URL: ${MQTT_CERT_RELOAD_WEBHOOK_URL:?MQTT_CERT_RELOAD_WEBHOOK_URL required}
       KOMODO_WEBHOOK_SECRET_FILE: /run/secrets/komodo-webhook
-    command: >
+    command: >-
       certonly --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --dns-cloudflare-propagation-seconds 60 --deploy-hook /usr/local/bin/komodo-deploy-hook -d ${MQTT_DOMAIN:?MQTT_DOMAIN required} --agree-tos --non-interactive --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL required}
     restart: "no"
     extends:

@@ -6,6 +6,21 @@ relative symlinks in `live/` continue to resolve into `archive/`. There are no
 certificate copies, runtime generations, markers, fingerprints, Docker socket
 mounts, TLS probes, or custom certificate lifecycle files.
 
+## Compose Convention
+
+Active stacks use the Compose service key `certbot` and an explicit, globally
+unique `<stack>_certbot` container name. Komodo addresses one-shot jobs by Docker
+container name, so generated Compose names are not stable enough for this
+automation contract. These utility containers are singletons and are never
+scaled.
+
+Each Certbot block keeps the pinned image, container name, volumes, optional
+deploy-hook environment, folded `certonly` command, explicit `restart: "no"`,
+and shared defaults in that order. Domain and email inputs use Compose required
+variable guards. Stack-specific commands, mounts, GIDs, and webhook secrets stay
+inline; a shared Compose extension would obscure more configuration than it
+would remove.
+
 ## Flow
 
 1. A stopped one-shot Certbot container owns its ACME account, renewal, `live/`,
@@ -15,14 +30,16 @@ mounts, TLS probes, or custom certificate lifecycle files.
 2. Certbot runs `komodo-deploy-hook.py` only after initial issuance or a renewal.
    The hook validates the lineage and its resolved archive targets, makes the
    minimum direct-file permission changes, then sends one HTTPS,
-   GitLab-compatible private Komodo Action webhook with `X-Gitlab-Token` and ref
-   `refs/heads/main`, matching the generated Action webhook URL ending in
-   `/main`.
-3. The receiving per-resource Action invokes
-   `komodo/actions/reload-container.ts`. It sends `HUP` by default, confirms the
-   container remains running one second later, and restarts only when the signal
-   fails or leaves it stopped. The Mosquitto receiver uses these defaults. It
-   performs no TLS or certificate verification.
+   GitLab-compatible private Komodo Action or Procedure webhook with
+   `X-Gitlab-Token` and ref `refs/heads/main`, matching the generated webhook URL
+   ending in `/main`.
+3. A single-consumer receiver invokes `komodo/actions/reload-container.ts`. It
+   sends `HUP` by default, confirms the container remains running one second
+   later, and restarts only when the signal fails or leaves it stopped. Consumers
+   without a reliable reload signal use explicit `mode: "restart"`. A
+   multi-consumer stack can target a Procedure that runs one reload Action per
+   consumer and succeeds only when every execution succeeds. These receivers
+   perform no TLS or certificate verification.
 
 The hook requires `RENEWED_LINEAGE`, numeric `CERT_CONSUMER_GID`,
 `KOMODO_WEBHOOK_URL`, and `KOMODO_WEBHOOK_SECRET_FILE`. It changes only the
@@ -45,9 +62,9 @@ Mount the two Certbot directories side by side, for example:
 
 Configure the consumer with its `live/<lineage>/fullchain.pem` and
 `live/<lineage>/privkey.pem` paths. For future applications, create one mapping
-per consumer: a stopped Certbot container, a per-resource webhook secret, a
-private reload Action webhook, and the reload Action arguments for that
-container. No shared certificate runtime is required.
+per certificate resource: a stopped Certbot container, a private webhook secret,
+and either a reload Action for one consumer or a reload Procedure for multiple
+consumers. No shared certificate runtime is required.
 
 ## Scheduling And Bootstrap
 
