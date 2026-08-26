@@ -87,7 +87,8 @@ main() {
   [ "$exit_code" = 0 ] || { fail 'container exited nonzero'; return; }
   [ "$start_rc" -eq 0 ] || { fail 'container start command failed'; return; }
   if grep -q 'komodo-deploy-hook:' "$output_file" && \
-    ! grep -q 'komodo-deploy-hook: reload requested' "$output_file"; then
+    grep 'komodo-deploy-hook:' "$output_file" | \
+      grep -qv 'komodo-deploy-hook: reload requested$'; then
     fail 'deploy hook reported failure'
     return
   fi
