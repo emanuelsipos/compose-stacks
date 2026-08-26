@@ -43,13 +43,14 @@ would remove.
 
 The hook requires `RENEWED_LINEAGE`, numeric `CERT_CONSUMER_GID`,
 `KOMODO_WEBHOOK_URL`, and `KOMODO_WEBHOOK_SECRET_FILE`. It changes only the
- `live/` root, `archive/` root, renewed lineage, and resolved archive lineage
- directories to running-owner:`CERT_CONSUMER_GID` with mode `0710`. The resolved
- full chain is mode `0644`; the current resolved private key is mode `0640`.
- Historical private keys in that lineage are reset to root-owned mode `0600`.
- The webhook
-secret must be a nonempty regular, non-symlink file without group or other
-permissions. Redirects are rejected so the token cannot be forwarded.
+`live/` root, `archive/` root, renewed lineage, and resolved archive lineage
+directories to running-owner:`CERT_CONSUMER_GID`. Directory mode defaults to
+`0710`; consumers that watch certificate directories can set
+`CERT_CONSUMER_DIR_MODE=750`. These are the only accepted values. The resolved
+full chain is mode `0644`; the current resolved private key is mode `0640`.
+Historical private keys in that lineage are reset to root-owned mode `0600`.
+The webhook secret must be a nonempty regular, non-symlink file without group or
+other permissions. Redirects are rejected so the token cannot be forwarded.
 
 ## Consumer Mapping
 
