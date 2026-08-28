@@ -1,7 +1,7 @@
 ---
 services:
   database.postgres:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:60580d98bb0c948efcd628d322091e965c1493ea6ccc4325ce22fc4dbd4dfa38
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:a967f496cbdae763c92702cdd73b5a64055ab1a36d8d035a7515463b2d78bb79
     container_name: forgejo_postgres
     volumes:
       - /opt/docker/forgejo/server/db/:/var/lib/postgresql/
