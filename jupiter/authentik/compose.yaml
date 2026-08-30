@@ -37,7 +37,7 @@ services:
       service: x-defaults
 
   postgresql:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:a967f496cbdae763c92702cdd73b5a64055ab1a36d8d035a7515463b2d78bb79
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:82eeb914329e35731a63b4d1c4beb0d48758d63c71d4cd4c14b65521b5cbce97
     container_name: authentik_postgres
     volumes:
       - /opt/docker/authentik/database/:/var/lib/postgresql/
