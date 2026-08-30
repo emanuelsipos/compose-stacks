@@ -11,7 +11,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${HOMEASSISTANT_MEM_LIMIT:-1g}
+          memory: ${HOMEASSISTANT_MEM_LIMIT:-2g}
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
