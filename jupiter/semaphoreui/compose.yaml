@@ -1,7 +1,7 @@
 ---
 services:
   database.postgres:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:82eeb914329e35731a63b4d1c4beb0d48758d63c71d4cd4c14b65521b5cbce97
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:9c832ef7ae1cee9c8c5c678f0229871c83941ff5c7a25f910ee7e9a8f2768620
     container_name: semaphore_postgres
     volumes:
       - /opt/docker/semaphore/db/:/var/lib/postgresql/
