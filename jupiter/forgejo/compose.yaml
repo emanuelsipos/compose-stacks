@@ -20,7 +20,7 @@ services:
       service: x-postgres
 
   service.docker-in-docker:
-    image: data.forgejo.org/oci/docker:29-dind@sha256:12e683a161823b2a839aeea999b9d960e6e1f9a97b1679ad6b441982e2d9cf07
+    image: data.forgejo.org/oci/docker:29-dind@sha256:3ef33f2e220b79ed3ef3b99d81746f06f306cd6340e2cb7331d17ae996e74cb6
     container_name: docker-in-docker
     volumes:
       - /opt/docker/forgejo/docker_certs/:/certs/
@@ -83,7 +83,7 @@ services:
       service: x-defaults
 
   service.runner-daemon:
-    image: data.forgejo.org/forgejo/runner:13.0.0@sha256:7fb853bfe73c229be6349398359c0a7bd01fadfd17c106607b2221150b799ed2
+    image: data.forgejo.org/forgejo/runner:13.1.0@sha256:c4af85fd9f0dd03788676a534781a87c71aa2c6a37737143e017eb94d4312952
     container_name: forgejo-runner
     depends_on:
       service.docker-in-docker:
