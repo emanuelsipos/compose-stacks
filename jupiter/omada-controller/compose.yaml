@@ -1,7 +1,7 @@
 ---
 services:
   omada-controller:
-    image: mbentley/omada-controller:6.3.0.44@sha256:02cf422734539c32b3128c9da81978372b56e071600837262029faa734cf0464
+    image: mbentley/omada-controller:6.3.0.44@sha256:fc0a090dbaa0ffc65a924155b52d837a5090c54667628b61519852a195805efa
     container_name: omada-controller
     volumes:
       - /opt/docker/omada/data/:/opt/tplink/EAPController/data/
