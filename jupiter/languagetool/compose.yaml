@@ -4,7 +4,12 @@ services:
     image: erikvl87/languagetool@sha256:ef8fa12cbd485166c9ceeb7139d76d56d07707a624da6bb1fc1fbb5411750527
     container_name: languagetool
     volumes:
-      - /opt/docker/languagetool/ngrams/:/ngrams/
+      - type: bind
+        source: /mnt/appdata/languagetool/ngrams
+        target: /ngrams
+        read_only: true
+        bind:
+          create_host_path: false
       # - /opt/docker/languagetool/logback.xml:/LanguageTool/logback.xml:ro
     env_file: .env
     ports:
