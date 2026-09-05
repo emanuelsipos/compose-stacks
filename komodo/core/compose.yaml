@@ -35,6 +35,7 @@ services:
       - /opt/docker/komodo/mongo-data/:/data/db/
       - /opt/docker/komodo/mongo-config/:/data/configdb/
     environment:
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
       MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME:?database username required}
       MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD:?database password required}
     command: --quiet --wiredTigerCacheSizeGB 0.25
