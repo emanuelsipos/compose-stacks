@@ -55,6 +55,11 @@ services:
       - redis
     volumes:
       - /photos/:/usr/src/app/upload/
+      - type: bind
+        source: /mnt/userdata/photos
+        target: /usr/src/app/upload/library
+        bind:
+          create_host_path: false
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
