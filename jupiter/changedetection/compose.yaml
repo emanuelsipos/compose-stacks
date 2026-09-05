@@ -11,6 +11,12 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
 
   changedetection:
     image: ghcr.io/dgtlmoon/changedetection.io:0.60.3@sha256:ecacd9fd0c664a786b77daadbbbf51373519b29178a32df3ddbc5c594bc067ed
