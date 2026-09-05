@@ -76,3 +76,109 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+
+  plex-backup-retention:
+    image: alpine/git:v2.54.0@sha256:4f9488b7295baec153a9953479690f835ad4699b1d9f11e3897a4485c224fc3e
+    container_name: plex-backup-retention
+    volumes:
+      - /opt/docker/plex/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases/:/databases/
+    environment:
+      DELETE_ENABLED: ${PLEX_DATABASE_BACKUP_RETENTION_DELETE_ENABLED:-false}
+      RETENTION_DAYS: ${PLEX_DATABASE_BACKUP_RETENTION_DAYS:-10}
+      RETENTION_MIN_PAIRS: ${PLEX_DATABASE_BACKUP_RETENTION_MIN_PAIRS:-3}
+    network_mode: none
+    command:
+      - -euc
+      - |
+        case "$$DELETE_ENABLED" in
+          true|false) ;;
+          *) echo "DELETE_ENABLED must be true or false" >&2; exit 1 ;;
+        esac
+        case "$$RETENTION_DAYS:$$RETENTION_MIN_PAIRS" in
+          *[!0-9:]*|:*|*:) echo "Retention values must be integers" >&2; exit 1 ;;
+        esac
+        if [ "$$RETENTION_DAYS" -lt 1 ] || [ "$$RETENTION_MIN_PAIRS" -lt 3 ]; then
+          echo "Retention requires at least one day and three backup pairs" >&2
+          exit 1
+        fi
+
+        while true; do
+          ls -1 /databases/*.retention-delete.* > /tmp/staged 2>/dev/null || :
+          if [ -s /tmp/staged ]; then
+            echo "Staged backup deletions require manual recovery:" >&2
+            cat /tmp/staged >&2
+            exit 1
+          fi
+
+          now=$$(date +%s)
+          cutoff=$$((now - RETENTION_DAYS * 86400))
+          ls -1t /databases/com.plexapp.plugins.library.db-????-??-?? > /tmp/backups 2>/dev/null || :
+          count=0
+
+          while IFS= read -r core; do
+            name=$${core##*/}
+            if ! printf '%s\n' "$$name" | awk '
+              /^com[.]plexapp[.]plugins[.]library[.]db-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$$/ { valid = 1 }
+              END { exit !valid }
+            '; then
+              echo "Skipping unexpected backup name: $$name" >&2
+              continue
+            fi
+
+            backup_date=$${name#com.plexapp.plugins.library.db-}
+            blobs=/databases/com.plexapp.plugins.library.blobs.db-$$backup_date
+            if [ ! -f "$$core" ] || [ -L "$$core" ] || [ ! -f "$$blobs" ] || [ -L "$$blobs" ]; then
+              echo "Skipping incomplete or non-regular backup pair: $$backup_date" >&2
+              continue
+            fi
+
+            count=$$((count + 1))
+            core_mtime=$$(stat -c %Y "$$core")
+            blobs_mtime=$$(stat -c %Y "$$blobs")
+            core_size=$$(stat -c %s "$$core")
+            blobs_size=$$(stat -c %s "$$blobs")
+            if [ "$$count" -le "$$RETENTION_MIN_PAIRS" ] || [ "$$core_mtime" -gt "$$cutoff" ] || [ "$$blobs_mtime" -gt "$$cutoff" ]; then
+              echo "retain|$$backup_date|bytes=$$((core_size + blobs_size))"
+              continue
+            fi
+
+            sleep 1
+            if [ "$$core_mtime:$$core_size" != "$$(stat -c %Y "$$core"):$$(stat -c %s "$$core")" ] ||
+               [ "$$blobs_mtime:$$blobs_size" != "$$(stat -c %Y "$$blobs"):$$(stat -c %s "$$blobs")" ]; then
+              echo "Skipping changing backup pair: $$backup_date" >&2
+              continue
+            fi
+
+            if [ "$$DELETE_ENABLED" = true ]; then
+              suffix=.retention-delete.$$(date +%s)
+              core_staged=$$core$$suffix
+              blobs_staged=$$blobs$$suffix
+              mv "$$core" "$$core_staged"
+              if ! mv "$$blobs" "$$blobs_staged"; then
+                mv "$$core_staged" "$$core"
+                exit 1
+              fi
+              rm -f "$$core_staged" "$$blobs_staged"
+              echo "delete|$$backup_date|bytes=$$((core_size + blobs_size))"
+            else
+              echo "would-delete|$$backup_date|bytes=$$((core_size + blobs_size))"
+            fi
+          done < /tmp/backups
+
+          date +%s > /tmp/retention.last-success
+          sleep 86400
+        done
+    entrypoint: /bin/sh
+    healthcheck:
+      test: [ "CMD-SHELL", "test -s /tmp/retention.last-success && test $$(( $$(date +%s) - $$(cat /tmp/retention.last-success) )) -lt 90000" ]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 5m
+    user: ${PUID}:${PGID}
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
