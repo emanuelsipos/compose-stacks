@@ -61,6 +61,7 @@ services:
       default:
         aliases:
           - gamja-backend
+    restart: always
     user: 65532:65532
     cap_drop:
       - ALL
