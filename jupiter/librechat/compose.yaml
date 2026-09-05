@@ -82,6 +82,8 @@ services:
     container_name: LibreChat_mongodb
     volumes:
       - /opt/docker/librechat/data-node:/data/db
+    environment:
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
     networks:
       database:
     command: mongod --noauth
