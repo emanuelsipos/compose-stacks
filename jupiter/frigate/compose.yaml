@@ -6,7 +6,11 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /opt/docker/frigate/:/config/
-      - /frigate/:/media/frigate/
+      - type: bind
+        source: /mnt/appdata/frigate/media
+        target: /media/frigate
+        bind:
+          create_host_path: false
       - type: tmpfs # Optional: 1GB of memory, reduces SSD/SD Card wear
         target: /tmp/cache
         tmpfs:
