@@ -6,6 +6,11 @@ services:
     volumes:
       - /opt/docker/birdnet/config/:/config/
       - /opt/docker/birdnet/data/:/data/
+      - type: bind
+        source: /mnt/appdata/birdnet/clips
+        target: /data/clips
+        bind:
+          create_host_path: false
     env_file: .env
     ports:
       - '8080:8080'
