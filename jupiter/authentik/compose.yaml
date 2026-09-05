@@ -30,6 +30,7 @@ services:
       DB01_USER: ${PG_USER:-authentik}
       DB01_NAME: ${PG_DB:-authentik}
       DB01_PASS: ${PG_PASS:?database password required}
+      DB_CLEANUP_TIME: 43200
       CONTAINER_ENABLE_MONITORING: FALSE
     env_file: .env
     extends:
