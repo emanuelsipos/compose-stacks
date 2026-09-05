@@ -38,7 +38,11 @@ services:
     image: ghcr.io/karakeep-app/karakeep:0.33.2@sha256:b069e4307dec06ea06d16989c6861c30a1ff208568be44ed5fb5d422cd3e950c
     volumes:
       - /opt/docker/karakeep/data/:/data/
-      - /assets/:/assets/
+      - type: bind
+        source: /mnt/appdata/karakeep/assets
+        target: /assets
+        bind:
+          create_host_path: false
     environment:
       MEILI_ADDR: http://meilisearch:7700
       BROWSER_WEB_URL: http://chrome:9222
