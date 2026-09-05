@@ -11,6 +11,12 @@ services:
       - /mnt/data/:/mnt/data/:ro
       - /mnt/data2/:/mnt/data2/:ro
       - /mnt/data3/:/mnt/data3/:ro
+      - type: bind
+        source: /mnt/userdata/photos
+        target: /mnt/userdata/photos
+        read_only: true
+        bind:
+          create_host_path: false
     env_file: .env
     command: backup
     restart: "no"
