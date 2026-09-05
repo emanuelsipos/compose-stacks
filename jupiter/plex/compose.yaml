@@ -52,6 +52,11 @@ services:
     container_name: plex
     volumes:
       - /opt/docker/plex/config/:/config/
+      - type: bind
+        source: /mnt/appdata/plex/media
+        target: /config/Library/Application Support/Plex Media Server/Media
+        bind:
+          create_host_path: false
       - /opt/docker/plex/custom-cont-init.d/:/custom-cont-init.d/
       - /mnt/data/:/data/
       - /mnt/data3/:/data3/
