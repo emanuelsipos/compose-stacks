@@ -148,6 +148,7 @@ services:
       DB01_NAME: ${DB_DATABASE:?database name required}
       DB01_USER: ${DB_USERNAME:?database user required}
       DB01_PASS: ${DB_PASSWORD:?database password required}
+      DB_CLEANUP_TIME: 43200
       CONTAINER_ENABLE_MONITORING: FALSE
     extends:
       file: ../../_common/base.yaml

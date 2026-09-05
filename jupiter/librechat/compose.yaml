@@ -50,6 +50,7 @@ services:
       DB02_NAME: ${POSTGRES_DB:?database name required}
       DB02_USER: ${POSTGRES_USER:?database username required}
       DB02_PASS: ${POSTGRES_PASSWORD:?database password required}
+      DB_CLEANUP_TIME: 43200
       CONTAINER_ENABLE_MONITORING: FALSE
     networks:
       database:
