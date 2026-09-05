@@ -1,5 +1,92 @@
 ---
 services:
+  backup-retention:
+    image: fosrl/pangolin:1.22.2@sha256:83a55f933b4d970da85333ba9715a36550972398939ba1b70fe0381434259b96
+    container_name: pangolin-backup-retention
+    depends_on:
+      pangolin:
+        condition: service_healthy
+    volumes:
+      - /opt/docker/pangolin/db/backups/:/backups/
+    environment:
+      DELETE_ENABLED: ${PANGOLIN_BACKUP_RETENTION_DELETE_ENABLED:-false}
+      RETENTION_DAYS: ${PANGOLIN_BACKUP_RETENTION_DAYS:-14}
+      RETENTION_MIN_FILES: ${PANGOLIN_BACKUP_RETENTION_MIN_FILES:-3}
+    network_mode: none
+    command:
+      - -euc
+      - |
+        case "$$DELETE_ENABLED" in
+          true|false) ;;
+          *) echo "DELETE_ENABLED must be true or false" >&2; exit 1 ;;
+        esac
+        case "$$RETENTION_DAYS:$$RETENTION_MIN_FILES" in
+          *[!0-9:]*|:*|*:) echo "Retention values must be integers" >&2; exit 1 ;;
+        esac
+        if [ "$$RETENTION_DAYS" -lt 1 ] || [ "$$RETENTION_MIN_FILES" -lt 3 ]; then
+          echo "Retention requires at least one day and three files" >&2
+          exit 1
+        fi
+
+        while true; do
+          now=$$(date +%s)
+          cutoff=$$((now - RETENTION_DAYS * 86400))
+          ls -1t /backups/db_*.sqlite > /tmp/backups 2>/dev/null || :
+          count=0
+
+          while IFS= read -r backup; do
+            name=$${backup##*/}
+            if ! printf '%s\n' "$$name" | awk '
+              /^db_[0-9][0-9][0-9][0-9]-[0-9]+-[0-9]+_[0-9]+-[0-9]+-[0-9]+[.]sqlite$$/ { valid = 1 }
+              END { exit !valid }
+            '; then
+              echo "Skipping unexpected backup name: $$name" >&2
+              continue
+            fi
+            if [ ! -f "$$backup" ] || [ -L "$$backup" ]; then
+              echo "Skipping non-regular backup: $$name" >&2
+              continue
+            fi
+
+            count=$$((count + 1))
+            mtime=$$(stat -c %Y "$$backup")
+            size=$$(stat -c %s "$$backup")
+            if [ "$$count" -le "$$RETENTION_MIN_FILES" ] || [ "$$mtime" -gt "$$cutoff" ]; then
+              echo "retain|$$name|bytes=$$size|mtime=$$mtime"
+              continue
+            fi
+
+            sleep 1
+            if [ "$$mtime:$$size" != "$$(stat -c %Y "$$backup"):$$(stat -c %s "$$backup")" ]; then
+              echo "Skipping changing backup: $$name" >&2
+              continue
+            fi
+
+            if [ "$$DELETE_ENABLED" = true ]; then
+              rm -f "$$backup"
+              echo "delete|$$name|bytes=$$size|mtime=$$mtime"
+            else
+              echo "would-delete|$$name|bytes=$$size|mtime=$$mtime"
+            fi
+          done < /tmp/backups
+
+          date +%s > /tmp/retention.last-success
+          sleep 86400
+        done
+    entrypoint: /usr/bin/sh
+    healthcheck:
+      test: [ "CMD-SHELL", "test -s /tmp/retention.last-success && test $$(( $$(date +%s) - $$(cat /tmp/retention.last-success) )) -lt 90000" ]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 5m
+    extends:
+      file: ../../_common/base.yaml
+      service: x-defaults
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+
   pangolin:
     image: fosrl/pangolin:1.22.2@sha256:83a55f933b4d970da85333ba9715a36550972398939ba1b70fe0381434259b96
     container_name: pangolin
