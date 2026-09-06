@@ -53,6 +53,11 @@ services:
     volumes:
       - /opt/docker/plex/config/:/config/
       - type: bind
+        source: /mnt/appdata/plex/metadata
+        target: /config/Library/Application Support/Plex Media Server/Metadata
+        bind:
+          create_host_path: false
+      - type: bind
         source: /mnt/appdata/plex/media
         target: /config/Library/Application Support/Plex Media Server/Media
         bind:
