@@ -40,7 +40,6 @@ services:
   x-docker-socket-proxy:
     extends:
       service: x-defaults
-    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     read_only: true
@@ -51,7 +50,6 @@ services:
   x-byparr:
     extends:
       service: x-defaults
-    image: ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6
     environment:
       - TZ=${TZ}
     tmpfs:
