@@ -1,7 +1,7 @@
 ---
 services:
   beets:
-    image: lscr.io/linuxserver/beets:2.13.1@sha256:152308f033bf16fefb6c339c3313fb29b8a9ac2efe694c0390cbcba339b93670
+    image: lscr.io/linuxserver/beets:2.14.0@sha256:bbd09e2b19a0903f3f916c26e9ae5c30004913b293228b422154c0f9fecb2cd9
     container_name: beets
     volumes:
       - /opt/docker/beets/:/config/
