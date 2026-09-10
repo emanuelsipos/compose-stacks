@@ -736,6 +736,12 @@ jobs:
             echo "::error::HC_SECURITY_SCAN is not configured; refusing to report a false heartbeat."
             exit 1
           fi
+          ping_healthchecks() {
+            set -o pipefail
+            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
+              -fsS --retry 3 --dump-header - --output /dev/null "$1" | \
+              grep -Ei '^(HTTP/|server:|content-type:|cf-ray:)'
+          }
           if [ "${{ needs.misconfig.result }}" = "success" ] && \
              [ "${{ needs.vulnerabilities.result }}" = "success" ] && \
              [ "${{ needs.image-scan-plan.result }}" = "success" ] && \
@@ -743,9 +749,7 @@ jobs:
                 [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; } && \
               { [ "${{ needs.image-vulnerability-publish.result }}" = "success" ] || \
                 [ "${{ needs.image-vulnerability-publish.result }}" = "skipped" ]; }; then
-            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
-              -fsS --retry 3 "$HC_URL" > /dev/null
+            ping_healthchecks "$HC_URL"
           else
-            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
-              -fsS --retry 3 "${HC_URL}/fail" > /dev/null
+            ping_healthchecks "${HC_URL}/fail"
           fi
