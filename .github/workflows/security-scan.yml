@@ -727,7 +727,10 @@ jobs:
         env:
           HC_URL: ${{ secrets.HC_SECURITY_SCAN }}
         run: |
-          [ -z "$HC_URL" ] && exit 0
+          if [ -z "$HC_URL" ]; then
+            echo "::error::HC_SECURITY_SCAN is not configured; refusing to report a false heartbeat."
+            exit 1
+          fi
           if [ "${{ needs.misconfig.result }}" = "success" ] && \
              [ "${{ needs.vulnerabilities.result }}" = "success" ] && \
              [ "${{ needs.image-scan-plan.result }}" = "success" ] && \
@@ -735,7 +738,7 @@ jobs:
                 [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; } && \
               { [ "${{ needs.image-vulnerability-publish.result }}" = "success" ] || \
                 [ "${{ needs.image-vulnerability-publish.result }}" = "skipped" ]; }; then
-            curl -fsS --retry 3 "$HC_URL" > /dev/null || true
+            curl -fsS --retry 3 "$HC_URL" > /dev/null
           else
-            curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null || true
+            curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null
           fi
