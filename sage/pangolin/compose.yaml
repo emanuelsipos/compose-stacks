@@ -125,6 +125,11 @@ services:
     networks:
       default:
         ipv4_address: 172.20.0.250
+    depends_on:
+      pangolin:
+        condition: service_healthy
+      traefik:
+        condition: service_healthy
     <<: *cloudflared-base
 
   crowdsec:
@@ -260,6 +265,12 @@ services:
     network_mode: service:gerbil
     command:
       - --configFile=/etc/traefik/traefik_config.yml
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "-T", "3", "http://127.0.0.1:8080/api/http/routers"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
     deploy:
       resources:
         limits:
