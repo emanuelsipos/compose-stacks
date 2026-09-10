@@ -743,7 +743,9 @@ jobs:
                 [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; } && \
               { [ "${{ needs.image-vulnerability-publish.result }}" = "success" ] || \
                 [ "${{ needs.image-vulnerability-publish.result }}" = "skipped" ]; }; then
-            curl -fsS --retry 3 "$HC_URL" > /dev/null
+            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
+              -fsS --retry 3 "$HC_URL" > /dev/null
           else
-            curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null
+            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
+              -fsS --retry 3 "${HC_URL}/fail" > /dev/null
           fi
