@@ -26,6 +26,10 @@ on:
           - checkov
           - trivy
         default: all
+      send_heartbeat:
+        description: Send the production Healthchecks heartbeat.
+        type: boolean
+        default: false
 # ── Convenience expressions used throughout ───────────────────────────────
 # is_pr    : true on pull_request only
 # is_push  : true on push + schedule (the "post to commit" triggers)
@@ -719,7 +723,8 @@ jobs:
       - image-vulnerability-publish
     if: |
       always() &&
-      (github.event_name == 'schedule' || github.event_name == 'push')
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.send_heartbeat))
     runs-on: ubuntu-latest
     permissions: {}
     steps:
