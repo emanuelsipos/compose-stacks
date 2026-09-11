@@ -18,14 +18,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Check Compose files
-        uses: docker-compose-linter/dclint-github-action@18659f6a7956706cb67cf9c1ad5e55f4352cbc17 # v1.6.0
         with:
-          path: .
-          recursive: true
-          formatter: github
-          max-warnings: 0
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.20.0"
+
+      - name: Check changed Compose files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/dclint_pr.py "$BASE_SHA" "$HEAD_SHA"
 
   fix-compose:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
