@@ -7,7 +7,15 @@ x-cloudflared-base: &cloudflared-base
   depends_on:
     pangolin:
       condition: service_healthy
+    traefik:
+      condition: service_healthy
   command: tunnel --config /etc/cloudflared/config.yml run
+  healthcheck:
+    test: [ "CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready" ]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
 
 services:
   backup-retention:
@@ -210,6 +218,12 @@ services:
       - --reachableAt=http://gerbil:3004
       - --generateAndSaveKeyTo=/var/config/key
       - --remoteConfig=http://pangolin:3001/api/v1/
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3004/healthz" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -247,6 +261,8 @@ services:
     image: traefik:v3.7.13@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259
     container_name: traefik
     depends_on:
+      gerbil:
+        condition: service_healthy
       pangolin:
         condition: service_healthy
         restart: true
