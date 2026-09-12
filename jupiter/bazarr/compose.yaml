@@ -3,7 +3,7 @@ x-bazarr-base: &bazarr-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: lscr.io/linuxserver/bazarr:1.6.0@sha256:a20fb11a440d704a9d61c283aa26462aad33dc63223b173f8d8c77d33e8e9d59
+  image: lscr.io/linuxserver/bazarr:1.6.0@sha256:84b6f05a7a4194fafe5a0bec062d32f6ae9ea74db33d43d678cb9a3191f31c24
   env_file: .env
   healthcheck:
     test: [ "CMD-SHELL", "curl -fSs http://localhost:6767/ || exit 1" ]
@@ -16,7 +16,7 @@ x-git-updater: &git-updater
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: alpine/git:v2.54.0@sha256:4f9488b7295baec153a9953479690f835ad4699b1d9f11e3897a4485c224fc3e
+  image: alpine/git:v2.54.0@sha256:6f3b5029566da8e90b24945933dcd806be866b64b1e706f51828bf84faccf21b
   command:
     - "-c"
     - |

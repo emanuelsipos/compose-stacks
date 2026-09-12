@@ -5,6 +5,9 @@ services:
     container_name: vaultwarden
     volumes:
       - /opt/docker/vaultwarden/vw-data/:/data/
+    environment:
+      IP_HEADER: X-Forwarded-For
+      IP_HEADER_TRUSTED_PROXIES: 172.20.0.251/32
     env_file: .env
     networks:
       - pangolin

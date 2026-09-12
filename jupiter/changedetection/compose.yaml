@@ -1,7 +1,7 @@
 ---
 services:
   browser-sockpuppet-chrome:
-    image: dgtlmoon/sockpuppetbrowser:latest@sha256:f166a963b550c29af465c2fac518212e7e3a75f14f0d2b840cf4b79677295764
+    image: dgtlmoon/sockpuppetbrowser:latest@sha256:a61e64a694fef3b6d375a3c7c7dd7d74b1166a48b231cd98870b78f244deef79
     container_name: browser-sockpuppet-chrome
     environment:
       - SCREEN_WIDTH=1920
@@ -19,7 +19,7 @@ services:
         hard: 0
 
   changedetection:
-    image: ghcr.io/dgtlmoon/changedetection.io:0.60.3@sha256:ecacd9fd0c664a786b77daadbbbf51373519b29178a32df3ddbc5c594bc067ed
+    image: ghcr.io/dgtlmoon/changedetection.io:0.60.4@sha256:7bb6963b730df6a1070f7a08a607b0eb7a87fe65abfa4742d876ad33bb1267eb
     container_name: changedetection
     depends_on:
       - browser-sockpuppet-chrome

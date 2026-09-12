@@ -30,7 +30,7 @@ services:
       service: x-defaults
 
   postgres:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:823404dccffe3f8b92177b308455445aab86a0f343661d65e624099ae6780459
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:48b44882565694a297c62b07e8384b89c0e4264b169b67a655569974752327d0
     container_name: ente_postgres
     volumes:
       - /opt/docker/ente/postgres-data/:/var/lib/postgresql/
@@ -45,7 +45,7 @@ services:
       service: x-postgres
 
   web:
-    image: ghcr.io/ente/web@sha256:e7186d5b8f520ff591fc0730d60b427107d066310968863a4dc9150d60f3f0c2
+    image: ghcr.io/ente/web@sha256:71bd42b1459d04f6b5d109e170d5c1af00da133e0a134787f15b73532f54c9f9
     container_name: ente_web
     # ports:
     #   - 3000:3000 # Photos web app

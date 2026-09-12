@@ -220,6 +220,37 @@ class SecurityScanTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Unsupported Compose image"):
                     security_scan.images_from_files([compose])
 
+    def test_image_discovery_skips_block_scalar_bodies_and_resumes(self):
+        image = image_reference("example/app", "a")
+        contents = (
+            "services:\n"
+            "  app:\n"
+            "    command:\n"
+            "      - |\n"
+            "        case \"$1\" in\n"
+            "          *) echo ignored ;;\n"
+            "        esac\n"
+            f"    image: {image}\n",
+            "services:\n"
+            "  app:\n"
+            "    command: >-\n"
+            "      app: {image: ignored}\n"
+            "\n"
+            f"    image: {image}\n",
+            "x-items:\n"
+            "  - command: |2-\n"
+            "      app: {image: ignored}\n"
+            f"    image: {image}\n",
+        )
+        for content in contents:
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
+                compose = Path(directory) / "compose.yaml"
+                compose.write_text(content)
+
+                self.assertEqual(
+                    security_scan.images_from_files([compose]), [image]
+                )
+
     def test_image_discovery_rejects_unsupported_mapping_keys(self):
         for content in (
             'services:\n  app:\n    "im\\u0061ge": nginx:latest\n',

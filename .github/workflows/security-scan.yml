@@ -26,6 +26,10 @@ on:
           - checkov
           - trivy
         default: all
+      send_heartbeat:
+        description: Send the production Healthchecks heartbeat.
+        type: boolean
+        default: false
 # ── Convenience expressions used throughout ───────────────────────────────
 # is_pr    : true on pull_request only
 # is_push  : true on push + schedule (the "post to commit" triggers)
@@ -112,7 +116,7 @@ jobs:
             github.event_name != 'pull_request' ||
             steps.workflow-changed.outputs.any_changed == 'true'
           )
-        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12.3122.0
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
         continue-on-error: true
         with:
           directory: .github/workflows
@@ -123,7 +127,7 @@ jobs:
 
       - name: Upload Checkov results to GitHub code scanning
         if: always() && hashFiles('checkov-results/results_sarif.sarif') != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: checkov-results/results_sarif.sarif
           category: checkov-github-actions
@@ -182,7 +186,7 @@ jobs:
 
       - name: Upload KICS results to GitHub code scanning
         if: always() && hashFiles('kics-results/results.filtered.sarif') != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: kics-results/results.filtered.sarif
           category: kics-compose
@@ -345,7 +349,7 @@ jobs:
 
       - name: Upload Trivy results to GitHub code scanning
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-filesystem
@@ -622,7 +626,7 @@ jobs:
           path: trivy-image-results
 
       - name: Upload image results to GitHub code scanning
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: trivy-image-results/combined.sarif
           category: trivy-images-${{ matrix.id }}
@@ -719,7 +723,8 @@ jobs:
       - image-vulnerability-publish
     if: |
       always() &&
-      (github.event_name == 'schedule' || github.event_name == 'push')
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.send_heartbeat))
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -727,7 +732,16 @@ jobs:
         env:
           HC_URL: ${{ secrets.HC_SECURITY_SCAN }}
         run: |
-          [ -z "$HC_URL" ] && exit 0
+          if [ -z "$HC_URL" ]; then
+            echo "::error::HC_SECURITY_SCAN is not configured; refusing to report a false heartbeat."
+            exit 1
+          fi
+          ping_healthchecks() {
+            set -o pipefail
+            curl -A "Mozilla/5.0 (compatible; GitHub-Actions-Healthchecks/1.0)" \
+              -fsS --retry 3 --dump-header - --output /dev/null "$1" | \
+              grep -Ei '^(HTTP/|server:|content-type:|cf-ray:)'
+          }
           if [ "${{ needs.misconfig.result }}" = "success" ] && \
              [ "${{ needs.vulnerabilities.result }}" = "success" ] && \
              [ "${{ needs.image-scan-plan.result }}" = "success" ] && \
@@ -735,7 +749,7 @@ jobs:
                 [ "${{ needs.image-vulnerabilities.result }}" = "skipped" ]; } && \
               { [ "${{ needs.image-vulnerability-publish.result }}" = "success" ] || \
                 [ "${{ needs.image-vulnerability-publish.result }}" = "skipped" ]; }; then
-            curl -fsS --retry 3 "$HC_URL" > /dev/null || true
+            ping_healthchecks "$HC_URL"
           else
-            curl -fsS --retry 3 "${HC_URL}/fail" > /dev/null || true
+            ping_healthchecks "${HC_URL}/fail"
           fi

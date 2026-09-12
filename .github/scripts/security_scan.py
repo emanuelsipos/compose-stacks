@@ -37,6 +37,13 @@ FLOW_IMAGE_KEY = re.compile(r'''(?:^|[{,])\s*(?:image|"image"|'image')\s*:''')
 ESCAPED_MAPPING_KEY = re.compile(r'''(?:^|[{,])\s*"[^"]*\\[^"]*"\s*:''')
 ESCAPED_MAPPING_KEY_START = re.compile(r'''(?:^|[{,])\s*"[^"]*\\''')
 COMPLEX_MAPPING_KEY = re.compile(r"(?:^|[{,])\s*[?*!&]")
+BLOCK_SCALAR_HEADER = re.compile(
+    r"^(?P<indent>\s*)(?:"
+    r"(?P<sequence>-\s+)(?:(?P<sequence_key>[^#\n]+):\s*)?"
+    r"|(?P<mapping_key>[^#\n]+):\s*"
+    r")[|>]"
+    r"(?:[1-9][+-]?|[+-]?[1-9]|[+-]?)(?:\s+#.*)?$"
+)
 PACKAGE_LINE = re.compile(r"^Package:\s*(.+)$", re.MULTILINE)
 SARIF_SCHEMA = (
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/"
@@ -165,7 +172,13 @@ def images_from_git_ref(
 
 def images_from_text(content: str) -> set[str]:
     images: set[str] = set()
+    block_scalar_indent: int | None = None
     for line in content.splitlines():
+        indent = len(line) - len(line.lstrip())
+        if block_scalar_indent is not None:
+            if not line.strip() or indent > block_scalar_indent:
+                continue
+            block_scalar_indent = None
         if (
             ESCAPED_MAPPING_KEY.search(line)
             or ESCAPED_MAPPING_KEY_START.search(line)
@@ -181,6 +194,10 @@ def images_from_text(content: str) -> set[str]:
                 "Unsupported Compose image declaration (flow style): "
                 + line.strip()
             )
+        if match := BLOCK_SCALAR_HEADER.match(line):
+            block_scalar_indent = len(match.group("indent"))
+            if match.group("sequence_key") is not None:
+                block_scalar_indent += len(match.group("sequence"))
     return images
 
 

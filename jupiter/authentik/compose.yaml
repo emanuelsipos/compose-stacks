@@ -3,7 +3,7 @@ x-authentik-base: &authentik-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: ghcr.io/goauthentik/server:2026.8.1@sha256:9d605ed569ff9f39146be39da93714b2acf19072acc4ab0f0e2f2d81be88cdce
+  image: ghcr.io/goauthentik/server:2026.8.2@sha256:ff8489a5af4f4fe415ffd180a8e3c10b120bc2592d13d79dac050d977f7b9ecd
   depends_on:
     postgresql:
       condition: service_healthy
@@ -38,7 +38,7 @@ services:
       service: x-defaults
 
   postgresql:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:823404dccffe3f8b92177b308455445aab86a0f343661d65e624099ae6780459
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:48b44882565694a297c62b07e8384b89c0e4264b169b67a655569974752327d0
     container_name: authentik_postgres
     volumes:
       - /opt/docker/authentik/database/:/var/lib/postgresql/
