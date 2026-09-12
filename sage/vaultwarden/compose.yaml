@@ -1,16 +1,35 @@
 ---
 services:
+  postgres:
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:48b44882565694a297c62b07e8384b89c0e4264b169b67a655569974752327d0
+    container_name: vaultwarden_postgres
+    volumes:
+      - /opt/docker/vaultwarden/postgres-data/:/var/lib/postgresql/
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS:?URL-safe database password required}
+      POSTGRES_USER: ${PG_USER:-vaultwarden}
+      POSTGRES_DB: ${PG_DB:-vaultwarden}
+    networks:
+      - database
+    extends:
+      file: ../../_common/base.yaml
+      service: x-postgres
   vaultwarden:
     image: vaultwarden/server:1.37.2@sha256:094b5689ed81549bd293418395c7cf495ae9d960fc2d4928cef2083ef913d912
     container_name: vaultwarden
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - /opt/docker/vaultwarden/vw-data/:/data/
     environment:
       IP_HEADER: X-Forwarded-For
       IP_HEADER_TRUSTED_PROXIES: 172.20.0.251/32
+      DATABASE_URL: postgresql://${PG_USER:-vaultwarden}:${PG_PASS:?URL-safe database password required}@postgres:5432/${PG_DB:-vaultwarden}
     env_file: .env
     networks:
       - pangolin
+      - database
     deploy:
       resources:
         limits:
@@ -18,8 +37,13 @@ services:
     extends:
       file: ../../_common/base.yaml
       service: x-defaults
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
 
 networks:
+  database:
+    internal: true
   pangolin:
     external: true
     name: pangolin
