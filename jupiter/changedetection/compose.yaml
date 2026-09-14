@@ -1,7 +1,7 @@
 ---
 services:
   browser-sockpuppet-chrome:
-    image: dgtlmoon/sockpuppetbrowser:latest@sha256:61cf3a922a1a9c5358da4bf669582c12704ffcbcebf2d17ec17c82df8978a0ec
+    image: dgtlmoon/sockpuppetbrowser:latest@sha256:1d8f72d2ce2085faed4232e5ae1e65c02efe5b831a18e127829b267c260b4fb2
     container_name: browser-sockpuppet-chrome
     environment:
       - SCREEN_WIDTH=1920
