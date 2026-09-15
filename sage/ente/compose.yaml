@@ -1,7 +1,7 @@
 ---
 services:
   museum:
-    image: ghcr.io/ente/server@sha256:447547e9c4011d12b8e4e4a3a9c33a7828d9be791521024227b83f4b2888fafc
+    image: ghcr.io/ente/server@sha256:3511ff25db3bf950abeb3983928eeadeed7f53b690ee94704c14be72fa719b1d
     container_name: ente_museum
     # ports:
     #   - 8080:8080 # API
