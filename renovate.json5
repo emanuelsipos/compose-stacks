@@ -260,7 +260,8 @@
         "mickey3721/flareproxy",
         "pgvector/pgvector",
         "wangqiru/mercury-parser-api",
-        "wangqiru/opencc-api-server"
+        "wangqiru/opencc-api-server",
+        "ghcr.io/kikootwo/readmeabook"
       ],
       "automerge": true,
       "automergeType": "pr"
