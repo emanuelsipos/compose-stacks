@@ -19,7 +19,7 @@ x-cloudflared-base: &cloudflared-base
 
 services:
   backup-retention:
-    image: fosrl/pangolin:1.22.2@sha256:83a55f933b4d970da85333ba9715a36550972398939ba1b70fe0381434259b96
+    image: fosrl/pangolin:1.23.0@sha256:00cfb631097a819a0b6a65cf84e5d976a9f4a4fece533a59a984de374711f47a
     container_name: pangolin-backup-retention
     depends_on:
       pangolin:
@@ -201,7 +201,7 @@ services:
       service: x-docker-socket-proxy
 
   gerbil:
-    image: fosrl/gerbil:1.5.1@sha256:e8010d0354d7dc3b8cb1c80d1ae9d961c02e8b1fccc353ef1dfc37631722f7f6
+    image: fosrl/gerbil:1.5.2@sha256:1f6e64eaba7997282c7067ba19922fc7e46b5f73e1a27add3dd66a591d50512f
     container_name: gerbil
     depends_on:
       pangolin:
@@ -241,7 +241,7 @@ services:
       service: x-defaults
 
   pangolin:
-    image: fosrl/pangolin:1.22.2@sha256:83a55f933b4d970da85333ba9715a36550972398939ba1b70fe0381434259b96
+    image: fosrl/pangolin:1.23.0@sha256:00cfb631097a819a0b6a65cf84e5d976a9f4a4fece533a59a984de374711f47a
     container_name: pangolin
     volumes:
       - /opt/docker/pangolin/:/app/config/
