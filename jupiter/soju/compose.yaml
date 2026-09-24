@@ -20,7 +20,7 @@ services:
       service: x-defaults
 
   gamja:
-    image: codeberg.org/emersion/gamja:v1.0.0-beta.11@sha256:bb827a6fb3986587e671eac4265717dd7418bcb2f3ec8c8b306eec2f88760c1c
+    image: codeberg.org/emersion/gamja:v1.0.0-beta.11@sha256:e3eac67e221e58d78809d253ba0486fef0ae9f1a0e3fbe8914c56c1e66dd372d
     volumes:
       - /opt/docker/soju/gamja-config.json:/gamja-config.json:ro
     ports:
@@ -34,7 +34,7 @@ services:
       service: x-defaults
 
   kimchi:
-    image: codeberg.org/emersion/kimchi:v0.2.0@sha256:4cf37ca41a7652381616d0a08df83f411513a708c3a576983b33ed889e51ff83
+    image: codeberg.org/emersion/kimchi:v0.2.1@sha256:d9b1e7c75c7c4c9b5df1cd4e07b0245d17b37df2db88d610736d2cbda7a65481
     volumes:
       - /opt/docker/soju/kimchi-config:/kimchi-config:ro
     command: ""
@@ -47,7 +47,7 @@ services:
       service: x-defaults
 
   soju:
-    image: codeberg.org/emersion/soju:v0.10.1@sha256:c0473d8f19554a03790f2a475d59646600f2f384b07b296afa782aec4c40253d
+    image: codeberg.org/emersion/soju:v0.11.1@sha256:d96e0e796eab43fdea143e2ccfdd586bb5b04e3bb6a6dc544b01c35ebeaef74a
     container_name: soju
     volumes:
       - /opt/docker/soju/soju-config:/soju-config:ro
