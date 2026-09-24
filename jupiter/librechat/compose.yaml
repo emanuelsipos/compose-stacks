@@ -98,7 +98,7 @@ services:
       service: x-defaults
 
   rag-api:
-    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest@sha256:6f2ea2aae300498c89c6650dc7a72df7ddb1482d887c04a0e59f03d6999099b5
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest@sha256:a62ce2221b43a9bb57fa6cb733e7047c80132960272c33d5704028f3071a1251
     container_name: LibreChat_rag-api
     depends_on:
       - vectordb
