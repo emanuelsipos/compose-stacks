@@ -1,7 +1,7 @@
 ---
 services:
   wolf:
-    image: ghcr.io/games-on-whales/wolf:stable@sha256:5df8d062dfaa42312fa395e09b9fed1841b6e47deda47f91ff42cef8a1971a30
+    image: ghcr.io/games-on-whales/wolf:stable@sha256:b0ef253739f9bd49b71eba7e150c955fd05990c0d409e666d89236995351551a
     container_name: wolf
     volumes:
       - /opt/docker/wolf/:/opt/docker/wolf/
