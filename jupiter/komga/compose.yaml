@@ -3,7 +3,7 @@ x-komga-base: &komga-base
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: gotson/komga:1.27.1@sha256:9cf102f5fb78e2e020700c53eca757e4f4d4e347121b0a16380822760337cca9
+  image: gotson/komga:1.28.0@sha256:19764751d501495b021530c9426f25d8f9f8748dc38ab3ba48eb62d7df2cd92e
   env_file: .env
   user: "${PUID:-1000}:${PGID:-1000}"
 x-vol-media: &vol-media /mnt/data3/media/:/data3/media/
