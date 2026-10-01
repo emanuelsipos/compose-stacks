@@ -20,7 +20,7 @@ services:
       service: x-postgres
 
   service.docker-in-docker:
-    image: data.forgejo.org/oci/docker:29-dind@sha256:3f3c01aaaebf7cce837356b688b7c059a4749f10bd7660dec7c58fc454a283f0
+    image: data.forgejo.org/oci/docker:29-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
     container_name: docker-in-docker
     volumes:
       - /opt/docker/forgejo/docker_certs/:/certs/
