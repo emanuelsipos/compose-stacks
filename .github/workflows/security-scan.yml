@@ -116,7 +116,7 @@ jobs:
             github.event_name != 'pull_request' ||
             steps.workflow-changed.outputs.any_changed == 'true'
           )
-        uses: bridgecrewio/checkov-action@cc0e17d456ef1713bbfd963ebac19dc776775cb2 # v12.3128.0
+        uses: bridgecrewio/checkov-action@7b1bd992e2c40a3404e3511944aeb8d014703d9a # v12.3129.0
         continue-on-error: true
         with:
           directory: .github/workflows
