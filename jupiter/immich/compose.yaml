@@ -25,6 +25,8 @@ services:
     volumes:
       - model-cache:/cache/
       - /dev/bus/usb/:/dev/bus/usb/
+    environment:
+      MACHINE_LEARNING_MODEL_REVISION: v2
     env_file:
       - .env
     healthcheck:
