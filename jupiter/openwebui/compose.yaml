@@ -1,7 +1,7 @@
 ---
 services:
   openwebui:
-    image: ghcr.io/open-webui/open-webui:main@sha256:f179b139e120666eb9ca0fb4af0cfd12a8872f4e1b7bde25f53f099527a5f0aa
+    image: ghcr.io/open-webui/open-webui:main@sha256:4e1dd31538187a4c5749b30880dbc8ae745b2827cf9016cbfd691b431199b230
     container_name: openwebui
     volumes:
       - /opt/docker/open-webui/:/app/backend/data/
