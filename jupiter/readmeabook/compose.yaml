@@ -3,7 +3,7 @@ name: readmeabook
 
 services:
   postgres:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:0980f46bd1ee8a09166786339b375508ff98ae3d2a00a20fc344c36f6fa75cdc
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:575035dfba2ea65b375270b45ddc4a4830ee7636e25bd539156743352ece8f7d
     container_name: readmeabook_postgres
     volumes:
       - /opt/docker/readmeabook/postgres/:/var/lib/postgresql/
