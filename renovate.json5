@@ -250,6 +250,7 @@
         "healthchecks/healthchecks",
         "ghcr.io/tphakala/birdnet-go",
         "ghcr.io/seerr-team/seerr",
+        "ghcr.io/jabloink/seerr",
         "myoung34/github-runner",
         "luligu/matterbridge",
         "ghcr.io/dictionarry-hub/profilarr",

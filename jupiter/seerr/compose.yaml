@@ -1,7 +1,7 @@
 ---
 services:
   seerr:
-    image: ghcr.io/seerr-team/seerr:v3.5.0@sha256:27602401178d54f1964442287b9f23f67a3fa2252645ee8065839ea1c3f69e45
+    image: ghcr.io/jabloink/seerr:v3.5.0@sha256:749c177cf5c15d570d13e1e96d4e9bd9ca6d55e0f6940c1ce064f872eed23b19
     container_name: seerr
     volumes:
       - /opt/docker/seerr/:/app/config/
