@@ -7,7 +7,7 @@ services:
       service: x-byparr
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.6.5-develop@sha256:e7a05286500b6e51084b0ba263dbbaf825db1ec7b731bf18aea30df84714e5f6
+    image: lscr.io/linuxserver/prowlarr:2.6.5-develop@sha256:45c0a6350f4c78178ec2a7f608da3e7e696b6a5e374cbd925d132bf053b99c58
     container_name: prowlarr
     volumes:
       - /opt/docker/prowlarr/:/config
