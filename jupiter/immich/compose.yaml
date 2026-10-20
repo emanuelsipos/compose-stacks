@@ -20,7 +20,7 @@ services:
     shm_size: 128mb
 
   immich-machine-learning:
-    image: ghcr.io/immich-app/immich-machine-learning:v3.3.3-openvino@sha256:43b6b964c6cc458b624ec9b7ed2af0231e19e3bcfaaa68fba8a2668353c48251
+    image: ghcr.io/immich-app/immich-machine-learning:v3.3.4-openvino@sha256:dd558de9694484185e47cbd35d8caa7da1aa46766f65d4f6ab011a1a0d51f781
     container_name: immich_machine_learning
     volumes:
       - model-cache:/cache/
@@ -50,7 +50,7 @@ services:
       - 104
 
   immich-server:
-    image: ghcr.io/immich-app/immich-server:v3.3.3@sha256:bae7664ff3aa4c2c1fcbdcdd86b40b105643c5f861f3e6a770fc760089f25862
+    image: ghcr.io/immich-app/immich-server:v3.3.4@sha256:f6475c58b07a8d89ec845aa8782731d36656c3c17d943e0a101dc6ed99a2e53f
     container_name: immich_server
     depends_on:
       - database
