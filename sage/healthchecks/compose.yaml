@@ -34,7 +34,7 @@ services:
     networks:
       - db
       - pangolin
-    command: bash -c 'while !</dev/tcp/$${DB_HOST}/$${DB_PORT}; do sleep 1; done; uwsgi /opt/healthchecks/docker/uwsgi.ini'
+    command: bash -c 'while !</dev/tcp/$${DB_HOST}/$${DB_PORT}; do sleep 1; done; /opt/healthchecks/run.sh'
     expose:
       - '8000'
     extends:
