@@ -1,7 +1,7 @@
 ---
 services:
   backup-retention:
-    image: fosrl/pangolin:1.25.1@sha256:8789ee5ed78beaa01e54a3a09b31ff6a450f47824395dc7999bace355974e447
+    image: fosrl/pangolin:1.25.2@sha256:e652f01250e78f275861897daf479c0e2a07109b438b920f628600da79668b72
     container_name: pangolin-backup-retention
     depends_on:
       pangolin:
@@ -88,7 +88,7 @@ services:
       - /tmp:size=1m,mode=1777
 
   pangolin:
-    image: fosrl/pangolin:1.25.1@sha256:8789ee5ed78beaa01e54a3a09b31ff6a450f47824395dc7999bace355974e447
+    image: fosrl/pangolin:1.25.2@sha256:e652f01250e78f275861897daf479c0e2a07109b438b920f628600da79668b72
     container_name: pangolin
     volumes:
       - /opt/docker/pangolin/:/app/config/
