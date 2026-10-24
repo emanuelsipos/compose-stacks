@@ -21,7 +21,7 @@ services:
       - /opt/docker/stash/metadata/:/metadata/
       - /opt/docker/stash/cache/:/cache/
       - /opt/docker/stash/generated/:/generated/
-      - /mnt/data/torrents/:/mnt/data/torrents/
+      - /mnt/data/torrents/:/data/torrents/
     env_file: .env
     ports:
       - '9999:9999'
