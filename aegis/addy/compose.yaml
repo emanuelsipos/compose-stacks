@@ -1,7 +1,7 @@
 ---
 services:
   addy:
-    image: anonaddy/anonaddy:1.7.3@sha256:dea5b56fae3837b4613e9c32de36ffcc2c67ddce69f099223256edc9603c2eb8
+    image: anonaddy/anonaddy:1.7.3@sha256:5b467fdc3a0b14ff57ac5c69dbd912146bd964bd6c9044eee1eff4808548b366
     container_name: addy
     depends_on:
       - db
