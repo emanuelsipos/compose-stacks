@@ -20,7 +20,7 @@ services:
       service: x-postgres
 
   readmeabook:
-    image: ghcr.io/kikootwo/readmeabook:1.2.10@sha256:80985d505a7d527f3ae2fd207cfa04a5590e6fd42c6feb95461889944f2d3267
+    image: ghcr.io/kikootwo/readmeabook:1.2.12@sha256:8e8eb2212f445ad2c720de7c7806dbf9ec6b2946d377aefba4326b0dd6bd2e2a
     container_name: readmeabook
     depends_on:
       postgres:
