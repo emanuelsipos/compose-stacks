@@ -1,7 +1,7 @@
 ---
 services:
   kavita:
-    image: lscr.io/linuxserver/kavita:0.9.1@sha256:34dddd2e79854772b788e5847f1702444b11118bbeabd0a5590f57e15346222b
+    image: lscr.io/linuxserver/kavita:0.9.1@sha256:de556f62dadefdd59dc69e04855db91157d774f84b242568c8858251aff1340b
     container_name: kavita
     volumes:
       - /opt/docker/kavita/:/config/
