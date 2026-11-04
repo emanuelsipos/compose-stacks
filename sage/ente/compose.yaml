@@ -45,7 +45,7 @@ services:
       service: x-postgres
 
   web:
-    image: ghcr.io/ente/web@sha256:918d5c271cb48016e79098303f18eafbc458f40c0514781d89ebf98001038ca2
+    image: ghcr.io/ente/web@sha256:795e2190489b773c9548f0d8b60350476a0c90ad7c8d4e9e8289c61aed81e3c0
     container_name: ente_web
     # ports:
     #   - 3000:3000 # Photos web app
