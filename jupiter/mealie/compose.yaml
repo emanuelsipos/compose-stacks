@@ -1,7 +1,7 @@
 ---
 services:
   database.postgres:
-    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:ab734dfffd954f39c15c778aba89ec8ccb4680dd7dbce4932f96e64988b73466
+    image: pgautoupgrade/pgautoupgrade:18-alpine@sha256:39420a693479c55b4d51c0ca930fe7c5685ec82c719c05db863afb4a3d52d5e9
     container_name: mealie_postgres
     volumes:
       - /opt/docker/mealie/database/:/var/lib/postgresql/
