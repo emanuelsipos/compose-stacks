@@ -34,9 +34,6 @@ services:
       - .env
     healthcheck:
       disable: false
-    # extends: # uncomment this section for hardware acceleration - see https://immich.app/docs/features/ml-hardware-acceleration
-    #   file: hwaccel.ml.yaml
-    #   service: openvino # set to one of [armnn, cuda, rocm, openvino, openvino-wsl, rknn] for accelerated inference - use the `-wsl` version for WSL2 where applicable
     deploy:
       resources:
         limits:
@@ -80,9 +77,6 @@ services:
       resources:
         limits:
           memory: ${IMMICH_SERVER_MEM_LIMIT:-3g}
-    # extends:
-    #   file: hwaccel.transcoding.yaml
-    #   service: quicksync # set to one of [nvenc, quicksync, rkmpp, vaapi, vaapi-wsl] for accelerated transcoding
     devices:
       - /dev/dri/:/dev/dri/
     extends:
