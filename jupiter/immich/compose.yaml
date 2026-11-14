@@ -10,6 +10,8 @@ services:
       POSTGRES_USER: ${DB_USERNAME:?database user required}
       POSTGRES_DB: ${DB_DATABASE_NAME:?database name required}
       POSTGRES_INITDB_ARGS: "--data-checksums"
+    networks:
+      - immich-iso
     deploy:
       resources:
         limits:
@@ -68,6 +70,9 @@ services:
       - .env
     ports:
       - '2283:2283'
+    networks:
+      - default
+      - immich-iso
     healthcheck:
       disable: false
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -90,9 +95,17 @@ services:
   redis:
     image: valkey/valkey:8-bookworm@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571
     container_name: immich_redis
+    networks:
+      - immich-iso
     extends:
       file: ../../_common/base.yaml
       service: x-redis
+
+networks:
+  default: {}
+  immich-iso:
+    driver: bridge
+    internal: true
 
 volumes:
   model-cache:
