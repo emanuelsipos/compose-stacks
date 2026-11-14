@@ -27,6 +27,7 @@ services:
       - /dev/bus/usb/:/dev/bus/usb/
     environment:
       MACHINE_LEARNING_MODEL_REVISION: v2
+      ORT_DISABLE_TELEMETRY: "1"
     env_file:
       - .env
     healthcheck:
