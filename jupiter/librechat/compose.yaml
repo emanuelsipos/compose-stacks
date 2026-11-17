@@ -79,7 +79,7 @@ services:
       service: x-defaults
 
   mongodb:
-    image: mongo:8@sha256:0f64db83d5926400d1cbcbaf35fbf2b0dfa6a4eaa71e04a26481a38cd803b27b
+    image: mongo:8@sha256:05b334b0a7a78fe913caac0cd2e1ecccf4da515d9a3a44be911b6ea3734c17cd
     container_name: LibreChat_mongodb
     volumes:
       - /opt/docker/librechat/data-node:/data/db
