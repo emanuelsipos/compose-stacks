@@ -1,146 +1,103 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices"
-  ],
-  "osvVulnerabilityAlerts": true,
-  "dependencyDashboard": true,
-  "dependencyDashboardTitle": "Renovate Dashboard",
-  "assignAutomerge": false,
-  "assignees": [
-    "emanuelsipos"
-  ],
-  "labels": [
-    "renovate"
-  ],
-  "configMigration": true,
-  "prHourlyLimit": 0,
-  "prConcurrentLimit": 0,
-  "rebaseWhen": "conflicted",
-  "packageRules": [
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices"],
+  osvVulnerabilityAlerts: true,
+  dependencyDashboard: {
+    enabled: true,
+    title: "Renovate Dashboard",
+  },
+  assignAutomerge: false,
+  assignees: ["emanuelsipos"],
+  labels: ["renovate"],
+  configMigration: true,
+  prHourlyLimit: 0,
+  prConcurrentLimit: 0,
+  rebaseWhen: "conflicted",
+  packageRules: [
     {
-      "matchManagers": [
-        "github-actions"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
+      matchManagers: ["github-actions"],
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["major"],
+      automerge: false,
     },
     {
-      "groupName": "immich",
-      "matchPackageNames": [
+      groupName: "immich",
+      matchPackageNames: [
         "ghcr.io/immich-app/immich-machine-learning",
-        "ghcr.io/immich-app/immich-server"
-      ]
-    },
-    {
-      "groupName": "forgejo",
-      "matchPackageNames": [
-        "data.forgejo.org/**"
-      ]
-    },
-    {
-      "groupName": "remnawave",
-      "matchPackageNames": [
-        "remnawave/*"
-      ]
-    },
-    {
-      "groupName": "fosrl",
-      "matchPackageNames": [
-        "fosrl/*"
-      ]
-    },
-    {
-      "groupName": "ente",
-      "matchPackageNames": [
-        "ghcr.io/ente/*"
-      ]
-    },
-    {
-      "groupName": "soju",
-      "matchPackageNames": [
-        "codeberg.org/emersion/*"
-      ]
-    },
-    {
-      "groupName": "librechat",
-      "matchPackageNames": [
-        "ghcr.io/danny-avila/librechat*"
-      ]
-    },
-    {
-      "groupName": "profilarr",
-      "matchPackageNames": [
-        "ghcr.io/dictionarry-hub/*"
-      ]
-    },
-    {
-      "matchManagers": [
-        "docker-compose"
+        "ghcr.io/immich-app/immich-server",
       ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "matchPackageNames": [
+    },
+    {
+      groupName: "forgejo",
+      matchPackageNames: ["data.forgejo.org/**"],
+    },
+    {
+      groupName: "remnawave",
+      matchPackageNames: ["remnawave/*"],
+    },
+    {
+      groupName: "fosrl",
+      matchPackageNames: ["fosrl/*"],
+    },
+    {
+      groupName: "ente",
+      matchPackageNames: ["ghcr.io/ente/*"],
+    },
+    {
+      groupName: "soju",
+      matchPackageNames: ["codeberg.org/emersion/*"],
+    },
+    {
+      groupName: "librechat",
+      matchPackageNames: ["ghcr.io/danny-avila/librechat*"],
+    },
+    {
+      groupName: "profilarr",
+      matchPackageNames: ["ghcr.io/dictionarry-hub/*"],
+    },
+    {
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["major"],
+      matchPackageNames: [
         "/(.*/)?postgres$/",
         "/(.*/)?mariadb$/",
         "/(.*/)?mongo$/",
         "/(.*/)?redis$/",
-        "/(.*/)?valkey$/"
+        "/(.*/)?valkey$/",
       ],
-      "enabled": false
+      enabled: false,
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "matchPackageNames": [
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["minor", "patch"],
+      matchPackageNames: [
         "/(.*/)?postgres$/",
         "/(.*/)?mariadb$/",
         "/(.*/)?mongo$/",
         "/(.*/)?redis$/",
-        "/(.*/)?valkey$/"
+        "/(.*/)?valkey$/",
       ],
-      "automerge": true,
-      "automergeType": "pr"
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "patch"
-      ],
-      "matchPackageNames": [
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["patch"],
+      matchPackageNames: [
         "ghcr.io/immich-app/immich-machine-learning",
-        "ghcr.io/immich-app/immich-server"
+        "ghcr.io/immich-app/immich-server",
       ],
-      "automerge": true,
-      "automergeType": "pr"
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch"
-      ],
-      "matchPackageNames": [
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["major", "minor", "patch"],
+      matchPackageNames: [
         "ghcr.io/esphome/esphome",
         "ghcr.io/goauthentik/server",
         "cloudflare/cloudflared",
@@ -149,33 +106,22 @@
         "chromedp/headless-shell",
         "ghcr.io/karakeep-app/karakeep-chrome",
         "wangqiru/ttrss",
-        "diygod/rsshub"
+        "diygod/rsshub",
       ],
-      "automerge": true,
-      "automergeType": "pr"
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "patch"
-      ],
-      "matchPackageNames": [
-        "ghcr.io/qbittorrent/docker-qbittorrent-nox"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["patch"],
+      matchPackageNames: ["ghcr.io/qbittorrent/docker-qbittorrent-nox"],
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "matchPackageNames": [
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["minor", "patch"],
+      matchPackageNames: [
         "anonaddy/anonaddy",
         "certbot/dns-cloudflare",
         "favonia/cloudflare-ddns",
@@ -262,128 +208,101 @@
         "pgvector/pgvector",
         "wangqiru/mercury-parser-api",
         "wangqiru/opencc-api-server",
-        "ghcr.io/kikootwo/readmeabook"
+        "ghcr.io/kikootwo/readmeabook",
       ],
-      "automerge": true,
-      "automergeType": "pr"
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchManagers": [
-        "docker-compose"
-      ],
-      "matchUpdateTypes": [
-        "pin",
-        "pinDigest",
-        "digest"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
+      matchManagers: ["docker-compose"],
+      matchUpdateTypes: ["pin", "pinDigest", "digest"],
+      automerge: true,
+      automergeType: "pr",
     },
     {
-      "matchPackageNames": "lscr.io/linuxserver/tautulli",
-      "allowedVersions": "<2000"
+      matchPackageNames: "lscr.io/linuxserver/tautulli",
+      allowedVersions: "<2000",
     },
     {
-      "matchPackageNames": "lscr.io/linuxserver/beets",
-      "allowedVersions": "<2000"
+      matchPackageNames: "lscr.io/linuxserver/beets",
+      allowedVersions: "<2000",
     },
     {
-      "matchPackageNames": "mcuadros/ofelia",
-      "allowedVersions": "<3"
+      matchPackageNames: "mcuadros/ofelia",
+      allowedVersions: "<3",
     },
     {
-      "matchPackageNames": "erikvl87/languagetool",
-      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-dockerupdate-(?<patch>\\d+))?$"
+      matchPackageNames: "erikvl87/languagetool",
+      versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(-dockerupdate-(?<patch>\\d+))?$",
     },
     {
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "ghcr.io/tphakala/birdnet-go"
-      ],
-      "versioning": "regex:^(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{2})$"
+      matchDatasources: ["docker"],
+      matchPackageNames: ["ghcr.io/tphakala/birdnet-go"],
+      versioning: "regex:^(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{2})$",
     },
     {
-      "groupName": "kics",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchDepNames": [
-        "Checkmarx/kics",
-        "Checkmarx/kics (linux_amd64 archive)"
-      ],
-      "minimumGroupSize": 3
+      groupName: "kics",
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["Checkmarx/kics", "Checkmarx/kics (linux_amd64 archive)"],
+      minimumGroupSize: 3,
     },
     {
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "addLabels": [
-        "pins"
-      ],
-      "automerge": true,
-      "automergeType": "pr"
-    }
+      matchManagers: ["custom.regex"],
+      addLabels: ["pins"],
+      automerge: true,
+      automergeType: "pr",
+    },
   ],
-  "hostRules": [
+  hostRules: [
     {
-      "matchHost": "docker.io",
-      "concurrentRequestLimit": 2
-    }
+      matchHost: "docker.io",
+      concurrentRequestLimit: 2,
+    },
   ],
   "docker-compose": {
-    "managerFilePatterns": [
+    managerFilePatterns: [
       "/^_common/base\\.yaml$/",
-      "/^jupiter/qbittorrent/gluetun\\.yaml$/"
-    ]
+      "/^jupiter/qbittorrent/gluetun\\.yaml$/",
+    ],
   },
-  "customDatasources": {
+  customDatasources: {
     "kics-linux-amd64": {
-      "defaultRegistryUrlTemplate": "https://api.github.com/repos/Checkmarx/kics/releases?per_page=100",
-      "format": "json",
-      "transformTemplates": [
-        "($releases := $map($, function($r) { ($v := $replace($r.tag_name, /^v/, \"\"); $a := $r.assets[name = \"kics_\" & $v & \"_linux_amd64.tar.gz\"][0]; $match($a.digest, /^sha256:[a-f0-9]{64}$/) ? {\"version\": $v, \"digest\": $replace($a.digest, /^sha256:/, \"\"), \"releaseTimestamp\": $r.published_at}) }); {\"releases\": [$filter($releases, function($r) { $exists($r) })]})"
-      ]
-    }
+      defaultRegistryUrlTemplate: "https://api.github.com/repos/Checkmarx/kics/releases?per_page=100",
+      format: "json",
+      transformTemplates: [
+        '($releases := $map($, function($r) { ($v := $replace($r.tag_name, /^v/, ""); $a := $r.assets[name = "kics_" & $v & "_linux_amd64.tar.gz"][0]; $match($a.digest, /^sha256:[a-f0-9]{64}$/) ? {"version": $v, "digest": $replace($a.digest, /^sha256:/, ""), "releaseTimestamp": $r.published_at}) }); {"releases": [$filter($releases, function($r) { $exists($r) })]})',
+      ],
+    },
   },
-  "customManagers": [
+  customManagers: [
     {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/\\.github/scripts/security_scan\\.py$/"
+      customType: "regex",
+      managerFilePatterns: ["/\\.github/scripts/security_scan\\.py$/"],
+      matchStrings: [
+        'KICS_VERSION = "(?<currentValue>[^"]+)"\\nKICS_ARCHIVE_SHA256 = "(?<currentDigest>[a-f0-9]{64})"',
       ],
-      "matchStrings": [
-        "KICS_VERSION = \"(?<currentValue>[^\"]+)\"\\nKICS_ARCHIVE_SHA256 = \"(?<currentDigest>[a-f0-9]{64})\""
-      ],
-      "depNameTemplate": "Checkmarx/kics (linux_amd64 archive)",
-      "datasourceTemplate": "custom.kics-linux-amd64",
-      "versioningTemplate": "semver"
+      depNameTemplate: "Checkmarx/kics (linux_amd64 archive)",
+      datasourceTemplate: "custom.kics-linux-amd64",
+      versioningTemplate: "semver",
     },
     {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/\\.github/workflows/security-scan\\.yml$/"
+      customType: "regex",
+      managerFilePatterns: ["/\\.github/workflows/security-scan\\.yml$/"],
+      matchStrings: [
+        "ref: (?<currentDigest>[a-f0-9]{40}) # v(?<currentValue>[^\\s]+)",
       ],
-      "matchStrings": [
-        "ref: (?<currentDigest>[a-f0-9]{40}) # v(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "Checkmarx/kics",
-      "packageNameTemplate": "Checkmarx/kics",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver"
+      depNameTemplate: "Checkmarx/kics",
+      packageNameTemplate: "Checkmarx/kics",
+      datasourceTemplate: "github-tags",
+      versioningTemplate: "semver",
     },
     {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/\\.pre-commit-config\\.yaml$/"
-      ],
-      "matchStrings": [
-        "- dclint@(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "dclint",
-      "datasourceTemplate": "npm",
-      "versioningTemplate": "npm"
-    }
-  ]
+      customType: "regex",
+      managerFilePatterns: ["/\\.pre-commit-config\\.yaml$/"],
+      matchStrings: ["- dclint@(?<currentValue>[^\\s]+)"],
+      depNameTemplate: "dclint",
+      datasourceTemplate: "npm",
+      versioningTemplate: "npm",
+    },
+  ],
 }
