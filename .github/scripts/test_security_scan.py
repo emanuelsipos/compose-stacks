@@ -4,6 +4,7 @@ import importlib.util
 import hashlib
 import io
 import json
+import json5
 import subprocess
 import tarfile
 import tempfile
@@ -1180,7 +1181,9 @@ class SecurityScanTests(unittest.TestCase):
         )
 
     def test_kics_renovate_group_requires_queries_and_binary(self):
-        config = json.loads((SCRIPT.parents[2] / "renovate.json5").read_text())
+        config = json5.loads(
+            (SCRIPT.parents[2] / "renovate.json5").read_text(encoding="utf-8")
+        )
         kics_rule = next(
             rule
             for rule in config["packageRules"]

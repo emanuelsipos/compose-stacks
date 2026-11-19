@@ -428,6 +428,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install security scan test dependencies
+        run: >-
+          python3 -m pip install
+          --require-hashes
+          --requirement .github/scripts/requirements.txt
+
       - name: Test security scan helpers
         run: >-
           python3 -m unittest discover
