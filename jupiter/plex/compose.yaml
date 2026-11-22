@@ -3,7 +3,7 @@ x-git-updater: &git-updater
   extends:
     file: ../../_common/base.yaml
     service: x-defaults
-  image: alpine/git:v2.54.1@sha256:2306e2b05ee0ef99f5d25b0779f645b24ae9f91ba187107503592fcdfe78da3a
+  image: alpine/git:v2.54.1@sha256:29cff25811f790b9f72fc266bf8009a5a911714c0e03c31c47339c50909d9aef
   command:
     - "-c"
     - |
@@ -88,7 +88,7 @@ services:
       service: x-defaults
 
   plex-backup-retention:
-    image: alpine/git:v2.54.1@sha256:2306e2b05ee0ef99f5d25b0779f645b24ae9f91ba187107503592fcdfe78da3a
+    image: alpine/git:v2.54.1@sha256:29cff25811f790b9f72fc266bf8009a5a911714c0e03c31c47339c50909d9aef
     container_name: plex-backup-retention
     volumes:
       - /opt/docker/plex/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases/:/databases/
